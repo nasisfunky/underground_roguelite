@@ -506,6 +506,10 @@ func _start_swing() -> void:
 	_swing_hit_done = false
 	_swing_cd = swing_interval
 	_swing_index = 1 - _swing_index
+	# Dauer und Trefferzeitpunkt kommen aus der Animation (Animationswerkstatt)
+	var c: Dictionary = AnimLibrary.clip(AnimLibrary.CLIPS[_swing_index])
+	swing_duration = c.duration
+	swing_hit_at = c.hit
 
 
 func _cancel_swing() -> void:

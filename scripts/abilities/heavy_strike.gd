@@ -2,7 +2,7 @@ class_name HeavyStrike
 extends Ability
 ## Taste 1: Wuchtiger Hieb von oben. Trifft alle Gegner in einem Kegel, bricht deren Haltung.
 
-const HIT_AT := 0.5
+var HIT_AT := 0.5  ## Sekunden; kommt aus der Animation "heavy"
 var _hit_done := false
 
 
@@ -17,6 +17,10 @@ func _init() -> void:
 
 func start(_p: Player) -> void:
 	_hit_done = false
+	var c: Dictionary = AnimLibrary.clip("heavy")
+	duration = c.duration
+	HIT_AT = c.hit * c.duration
+	cancel_at = maxf(HIT_AT + 0.28, duration * 0.65)
 
 
 func update(p: Player, t: float, delta: float) -> bool:

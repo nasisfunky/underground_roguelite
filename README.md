@@ -100,3 +100,24 @@ godot --headless --path . tools/smoke_test.tscn
 ```
 Der Test prüft Laufen, Sprunghöhe, Rolle, Ausdauer, Auto-Angriff, Tab-Zielwechsel,
 Fähigkeiten mit Abklingzeit, Gegnertreffer und Blocken.
+
+## Animationswerkstatt (Animation Workshop)
+
+Die Kampfanimationen (Auto-Hiebe Vorhand/Rückhand, Heavy Strike) sind Keyframe-Daten in
+`data/anims/*.json`. Das Spiel lädt sie beim Start; bearbeitet werden sie in der Werkstatt:
+
+1. In Godot `tools/anim_workshop.tscn` öffnen und mit **F6** (aktuelle Szene starten) laufen lassen.
+2. Oben die Animation wählen. Zeitleiste unten: klicken = springen, Raute ziehen = Timing eines Keys ändern,
+   rote Linie = Trefferzeitpunkt, heller Bereich = Klingen-Trail.
+3. In der 3D-Ansicht die Kugeln mit der linken Maustaste ziehen:
+   gelb = Schwertgriff, cyan = Klingenspitze, orange = Schild, kleine orange = Schild-Ausrichtung.
+   Steht an der aktuellen Zeit noch kein Key, wird automatisch einer angelegt.
+   Rote Griff-Kugel = der Arm erreicht diese Position nicht.
+4. Rechts: Werte des Keys (Körperdrehung, Vorlage, Hüfte absenken, genaue Koordinaten),
+   Dauer, Trefferzeitpunkt, Trail-Fenster.
+5. **Check clip** prüft die ganze Animation darauf, ob Klinge oder Arm durch den Körper gehen.
+6. **Save** (Strg+S) schreibt die JSON-Datei, danach im Spiel sofort aktiv.
+
+Start und Ende jeder Animation sind immer die aktuelle Grundhaltung (z. B. Kampfhaltung),
+dadurch gibt es keine harten Übergänge. Steuerung: RMB ziehen = Kamera drehen, MMB = verschieben,
+Mausrad = Zoom, Leertaste = abspielen, K = Key setzen, Entf = Key löschen, Pfeile = Zeit/Keys, Strg+Z = rückgängig.

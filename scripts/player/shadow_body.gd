@@ -32,6 +32,8 @@ var action_t := 0.0  ## normierte Zeit der Aktion 0..1
 var swing_index := 0  ## welcher Schwung (0,1 = Auto-Angriff, 2 = schwerer Hieb)
 var block_amount := 0.0  ## 0..1, Schild-Anheben
 var combat := 0.0  ## 0..1, Kampfhaltung (Ziel in Reichweite): Schild und Waffe erhoben
+var snap := false  ## Werkstatt: Federn springen sofort auf ihr Ziel (exakte Pose, kein Nachschwingen)
+var swing_sample: Array = []  ## letzte ausgewertete Schwung-Pose (für die Werkstatt)
 var look_target: Variant = null  ## Weltposition, zu der der Kopf schaut (oder null)
 
 # --- Interne Knoten ---
@@ -302,8 +304,8 @@ func tick(delta: float) -> void:
 
 	var s := clampf(speed / run_speed_ref, 0.0, 1.3)
 	# stufenloser Übergang Stand <-> Laufen <-> Luft
-	var w_move: float = clampf(_sp_moving.update(delta, 1.0 if (s > 0.04 and on_floor) else 0.0), 0.0, 1.2)
-	var w_air: float = clampf(_sp_air.update(delta, 0.0 if on_floor else 1.0), 0.0, 1.0)
+	var w_move: float = clampf(_u(_sp_moving, delta, 1.0 if (s > 0.04 and on_floor) else 0.0), 0.0, 1.2)
+	var w_air: float = clampf(_u(_sp_air, delta, 0.0 if on_floor else 1.0), 0.0, 1.0)
 
 	# --- Schrittzyklus: Schrittlänge wächst mit Tempo, Beinausschlag passt zur Schrittlänge (kein Gleiten) ---
 	var backwards := local_move.y < -0.1
@@ -316,7 +318,7 @@ func tick(delta: float) -> void:
 	if s > 0.05 and on_floor and local_move.length() > 0.1:
 		var lm := local_move * dir_sign
 		target_lower = clampf(atan2(-lm.x, lm.y), -1.0, 1.0)
-	var lower_yaw: float = _sp_lower.update(delta, target_lower)
+	var lower_yaw: float = _u(_sp_lower, delta, target_lower)
 
 	# Laufpose
 	var run_hl := sin(_phase) * amp
@@ -327,7 +329,7 @@ func tick(delta: float) -> void:
 	var bob := (-0.05 * s + 0.06 * s * absf(cos(_phase))) * w_move  # deutliches Absenken pro Schritt = Gewicht
 	# Stand-Pose (Kampfhaltung, leichtes Atmen)
 	var breathe := sin(_time * 2.0)
-	var cw: float = clampf(_sp_combat.update(delta, combat), 0.0, 1.0)
+	var cw: float = clampf(_u(_sp_combat, delta, combat), 0.0, 1.0)
 	# Kampfstand: linkes Bein vor, rechtes zurück, tiefer in den Knien
 	var idle_hl := lerpf(0.16, 0.34, cw)
 	var idle_hr := lerpf(-0.2, -0.3, cw)
@@ -380,7 +382,8 @@ func tick(delta: float) -> void:
 
 	match action:
 		&"swing":
-			var k := _swing_pose(swing_index, action_t, [grip, sdir, sflat])
+			var k := _swing_pose(swing_index, action_t, [grip, sdir, sflat, sh_pos, sh_front])
+			swing_sample = k
 			grip = k[0]
 			sdir = k[1]
 			sflat = k[2]
@@ -388,9 +391,8 @@ func tick(delta: float) -> void:
 			lean += k[4]
 			hips_drop = k[5]
 			hand_f = 7.5  # Schwung: Gewicht, aber trifft noch klar
-			# Schild weicht etwas zur Seite, damit der Schwertarm frei durchkommt
-			sh_pos = sh_pos.lerp(_unscale(Vector3(-0.3, 0.1, -0.3)), 0.7)
-			sh_front = sh_front.lerp(Vector3(-0.35, 0.0, -1.0), 0.7)
+			sh_pos = k[7]
+			sh_front = k[8]
 			_trail.emitting = action_t > k[6].x and action_t < k[6].y
 		&"roll":
 			# Rolle bis ROLL_SPIN, danach schweres Aufrichten aus der Hocke
@@ -479,15 +481,15 @@ func tick(delta: float) -> void:
 	_sp_shield.set_params(maxf(hand_f * 0.85, 3.5), 0.75, 1.0)
 	_sp_shield_dir.set_params(maxf(hand_f * 0.85, 3.5), 0.8, 1.0)
 	_sp_twist.set_params(hand_f * 0.8, 0.7, 1.2)
-	var g: Vector3 = _sp_grip.update(delta, _scale_pose(grip))
-	var d: Vector3 = _sp_dir.update(delta, sdir.normalized())
-	var f: Vector3 = _sp_flat.update(delta, sflat.normalized())
-	var sp: Vector3 = _sp_shield.update(delta, _scale_pose(sh_pos))
-	var sf: Vector3 = _sp_shield_dir.update(delta, sh_front.normalized())
-	var tw: float = _sp_twist.update(delta, twist)
-	var ln: float = _sp_lean.update(delta, lean)
-	var bk: float = _sp_bank.update(delta, bank)
-	var dr: float = _sp_drop.update(delta, hips_drop)
+	var g: Vector3 = _u(_sp_grip, delta, _scale_pose(grip))
+	var d: Vector3 = _u(_sp_dir, delta, sdir.normalized())
+	var f: Vector3 = _u(_sp_flat, delta, sflat.normalized())
+	var sp: Vector3 = _u(_sp_shield, delta, _scale_pose(sh_pos))
+	var sf: Vector3 = _u(_sp_shield_dir, delta, sh_front.normalized())
+	var tw: float = _u(_sp_twist, delta, twist)
+	var ln: float = _u(_sp_lean, delta, lean)
+	var bk: float = _u(_sp_bank, delta, bank)
+	var dr: float = _u(_sp_drop, delta, hips_drop)
 
 	# Rolle: direkt gesteuert; danach federt der Körper auf dem kürzesten Weg zurück
 	var rx: float
@@ -500,9 +502,9 @@ func tick(delta: float) -> void:
 	else:
 		if absf(_sp_rig_x.y) > PI:
 			_sp_rig_x.reset(wrapf(_sp_rig_x.y, -PI, PI))
-		rx = _sp_rig_x.update(delta, rig_x)
-		ry = _sp_rig_y.update(delta, rig_y)
-	var pv: float = _sp_pivot.update(delta, pivot)
+		rx = _u(_sp_rig_x, delta, rig_x)
+		ry = _u(_sp_rig_y, delta, rig_y)
+	var pv: float = _u(_sp_pivot, delta, pivot)
 	if rig_direct:
 		_sp_pivot.reset(pivot)
 		pv = pivot
@@ -523,7 +525,7 @@ func tick(delta: float) -> void:
 		var local_t: Vector3 = chest.global_transform.affine_inverse() * (look_target as Vector3)
 		var to := local_t - head.position
 		look = Vector2(clampf(atan2(-to.x, -to.z), -0.9, 0.9), clampf(atan2(to.y, Vector2(to.x, to.z).length()), -0.4, 0.3))
-	var hlook: Vector2 = _sp_head.update(delta, look)
+	var hlook: Vector2 = _u(_sp_head, delta, look)
 	head.rotation = Vector3(hlook.y - ln * 0.5 - head_tuck, hlook.x, 0.0)
 
 	# Bodenkontakt: während der Rolle liegt der tiefste Körperpunkt genau auf dem Boden
@@ -537,11 +539,11 @@ func tick(delta: float) -> void:
 
 	# Stoff schwingt mit Trägheit nach
 	var cloth_drive := minf(s, 1.2)
-	var tf: float = _sp_tab_f.update(delta, maxf(hl.x, hr.x) * 0.55 + 0.05 - ln * 0.3 + clampf(accel * 0.02, -0.4, 0.4))
-	var tb: float = _sp_tab_b.update(delta, minf(hl.x, hr.x) * 0.55 - 0.05 - 0.3 * cloth_drive - ln * 0.3 + clampf(accel * 0.02, -0.4, 0.4))
+	var tf: float = _u(_sp_tab_f, delta, maxf(hl.x, hr.x) * 0.55 + 0.05 - ln * 0.3 + clampf(accel * 0.02, -0.4, 0.4))
+	var tb: float = _u(_sp_tab_b, delta, minf(hl.x, hr.x) * 0.55 - 0.05 - 0.3 * cloth_drive - ln * 0.3 + clampf(accel * 0.02, -0.4, 0.4))
 	tabard_front.rotation.x = tf
 	tabard_back.rotation.x = tb
-	var sc: float = _sp_scarf.update(delta, 0.25 + 0.9 * cloth_drive - vertical_velocity * 0.06 + clampf(accel * 0.03, -0.5, 0.5))
+	var sc: float = _u(_sp_scarf, delta, 0.25 + 0.9 * cloth_drive - vertical_velocity * 0.06 + clampf(accel * 0.03, -0.5, 0.5))
 	scarf_tail.rotation = Vector3(sc + sin(_time * 8.0) * 0.08 * cloth_drive, 0.0, bk * 1.5)
 
 	sword.transform = Transform3D(_basis_from(-d.normalized(), f.normalized()), g)
@@ -550,7 +552,10 @@ func tick(delta: float) -> void:
 
 	# --- Arm-IK ---
 	var cb := chest.global_basis
-	_solve_arm(arm_up_r, arm_lo_r, chest.global_transform * SHOULDER_R, sword.global_transform * Vector3(0, 0, 0.02), cb * Vector3(0.7, -1.0, 0.6))
+	# Ellbogen zeigt nach außen-hinten; greift die Hand quer vor den Körper, wandert er nach vorn
+	var cross := clampf((0.12 - g.x) / 0.3, 0.0, 1.0)
+	var pole_r := Vector3(0.7, -1.0, 0.6).lerp(Vector3(0.35, -0.8, -0.9), cross)
+	_solve_arm(arm_up_r, arm_lo_r, chest.global_transform * SHOULDER_R, sword.global_transform * Vector3(0, 0, 0.02), cb * pole_r)
 	if has_shield:
 		_solve_arm(arm_up_l, arm_lo_l, chest.global_transform * SHOULDER_L, shield.global_transform * Vector3(0, 0, 0.07), cb * Vector3(-0.8, -1.0, 0.4))
 	else:
@@ -583,6 +588,43 @@ func _lowest_body_point() -> float:
 
 
 ## Umkehrung von _scale_pose: Brust-Koordinaten -> Posen-Koordinaten
+## Eindringtiefe eines Punkts (Brust-Koordinaten) in Rumpf, Umhang, Becken oder Kopf; 0 = außerhalb.
+## Vereinfachte Körperform, genutzt vom Smoke-Test und der Animationswerkstatt.
+static func clip_depth(p: Vector3) -> float:
+	var depth := maxf(0.0, 0.19 - p.distance_to(Vector3(0, 0.66, 0)))
+	if p.y > -0.3 and p.y < 0.55:
+		var rx := 0.15
+		var rz := 0.11
+		if p.y > 0.12:
+			rx = 0.27
+			rz = 0.21
+		var e := sqrt(pow(p.x / rx, 2) + pow(p.z / rz, 2))
+		if e < 1.0:
+			depth = maxf(depth, (1.0 - e) * minf(rx, rz))
+	return depth
+
+
+## Wie tief stecken Klinge und rechter Unterarm gerade im eigenen Körper (Meter)?
+func blade_clip_depth() -> float:
+	var inv := chest.global_transform.affine_inverse()
+	var pts := sword_points()
+	var worst := 0.0
+	for k in 9:
+		worst = maxf(worst, clip_depth(inv * pts[0].lerp(pts[1], 0.15 + 0.85 * k / 8.0)))
+	var elbow: Vector3 = inv * arm_lo_r.global_position
+	var hand: Vector3 = inv * pts[0]
+	for k in 4:
+		worst = maxf(worst, clip_depth(elbow.lerp(hand, k / 3.0)))
+	return worst
+
+
+func _u(sp: Spring, delta: float, x: Variant) -> Variant:
+	if snap:
+		sp.reset(x)
+		return x
+	return sp.update(delta, x)
+
+
 func _unscale(v: Vector3) -> Vector3:
 	return Vector3(v.x / 0.95, (v.y - 0.43) / POSE_SCALE + 0.47, v.z / POSE_SCALE)
 
@@ -646,40 +688,15 @@ func _ease_roll(t: float) -> float:
 
 ## Keyframes eines Schwungs. Liefert [griff, klingenrichtung, flachseite, drehung, vorlage, absenken, trail_fenster]
 func _swing_pose(index: int, t: float, base: Array) -> Array:
-	# Keys in Brust-Koordinaten: [t, Griff, Klingenrichtung, Flachseite, Drehung, Vorlage, Absenken].
+	# Keyframes kommen aus AnimLibrary (data/anims/*.json, bearbeitbar in der Animationswerkstatt).
 	# Erster und letzter Key = aktuelle Grundhaltung -> nahtloser Übergang aus/zurück in die Kampfhaltung.
-	# Ablauf: Ausholen (langsam, Körper dreht ein) -> Treffer (schnell) -> Durchziehen -> Zurückfinden.
-	var keys: Array
-	var trail_window := Vector2(0.32, 0.62)
-	match index:
-		0:  # Vorhand, waagerecht von rechts nach links
-			keys = [
-				[0.30, Vector3(0.40, 0.30, 0.08), Vector3(0.55, 0.5, 0.67), Vector3(0, 1, 0), -0.6, 0.08, 0.0],
-				[0.44, Vector3(0.14, 0.16, -0.60), Vector3(-0.05, 0.05, -1), Vector3(0, 1, 0), -0.05, -0.18, 0.07],
-				[0.56, Vector3(-0.24, 0.08, -0.62), Vector3(-1, -0.1, -0.4), Vector3(0, 1, 0), 0.55, -0.22, 0.08],
-				[0.74, Vector3(-0.08, 0.10, -0.58), Vector3(-0.6, 0.2, -0.75), Vector3(0, 1, 0), 0.3, -0.1, 0.04],
-			]
-		1:  # Rückhand, aufsteigend von links unten nach rechts oben
-			keys = [
-				[0.30, Vector3(-0.15, 0.0, -0.64), Vector3(-0.75, -0.45, -0.2), Vector3(0, 1, 0.3), 0.5, -0.05, 0.03],
-				[0.44, Vector3(0.08, 0.10, -0.62), Vector3(0.1, 0.2, -1), Vector3(0, 1, 0.2), 0.0, -0.18, 0.07],
-				[0.58, Vector3(0.42, 0.34, -0.25), Vector3(0.75, 0.6, 0.0), Vector3(-0.3, 1, 0), -0.5, -0.1, 0.04],
-				[0.76, Vector3(0.34, 0.20, -0.35), Vector3(0.2, 0.7, -0.6), Vector3(0, 1, 0), -0.2, -0.05, 0.02],
-			]
-		_:  # schwerer Hieb von oben
-			trail_window = Vector2(0.36, 0.62)
-			keys = [
-				[0.34, Vector3(0.30, 0.62, 0.02), Vector3(0.15, 0.55, 0.82), Vector3(1, 0, 0), -0.2, 0.15, 0.0],
-				[0.42, Vector3(0.10, 0.30, -0.62), Vector3(0, 0.35, -1), Vector3(1, 0, 0), 0.0, -0.25, 0.1],
-				[0.56, Vector3(0.06, -0.22, -0.58), Vector3(0, -0.65, -0.75), Vector3(1, 0, 0), 0.05, -0.4, 0.18],
-				[0.78, Vector3(0.20, 0.00, -0.50), Vector3(0.0, 0.2, -1), Vector3(1, 0, 0), 0.0, -0.2, 0.08],
-			]
-	for key in keys:
-		key[1] = _unscale(key[1])
-	var b0: Array = [0.0, base[0], base[1], base[2], 0.0, 0.0, 0.0]
-	var b1: Array = [1.0, base[0], base[1], base[2], 0.0, 0.0, 0.0]
-	keys.push_front(b0)
-	keys.push_back(b1)
+	var c: Dictionary = AnimLibrary.clip(AnimLibrary.CLIPS[clampi(index, 0, AnimLibrary.CLIPS.size() - 1)])
+	var trail_window: Vector2 = c.trail
+	# Zeile: [t, Griff, Klingenrichtung, Flachseite, Drehung, Vorlage, Absenken, Schild, Schild-Front]
+	var keys: Array = [[0.0, base[0], base[1], base[2], 0.0, 0.0, 0.0, base[3], base[4]]]
+	for k in c.keys:
+		keys.append([k.t, _unscale(k.grip), k.dir, k.flat, k.twist, k.lean, k.drop, _unscale(k.shield), k.shield_front])
+	keys.append([1.0, base[0], base[1], base[2], 0.0, 0.0, 0.0, base[3], base[4]])
 	# Catmull-Rom durch die Keyframes: durchgehende Geschwindigkeit, keine Stopps an den Keys
 	var i := 0
 	while i < keys.size() - 2 and t > keys[i + 1][0]:
@@ -693,7 +710,9 @@ func _swing_pose(index: int, t: float, base: Array) -> Array:
 	var d := _cr((k0[2] as Vector3).normalized(), (k1[2] as Vector3).normalized(), (k2[2] as Vector3).normalized(), (k3[2] as Vector3).normalized(), u).normalized()
 	var f := _cr((k0[3] as Vector3).normalized(), (k1[3] as Vector3).normalized(), (k2[3] as Vector3).normalized(), (k3[3] as Vector3).normalized(), u).normalized()
 	var sc := Vector3(_crf(k0[4], k1[4], k2[4], k3[4], u), _crf(k0[5], k1[5], k2[5], k3[5], u), _crf(k0[6], k1[6], k2[6], k3[6], u))
-	return [g, d, f, sc.x, sc.y, sc.z, trail_window]
+	var shp := _cr(k0[7], k1[7], k2[7], k3[7], u)
+	var shf := _cr((k0[8] as Vector3).normalized(), (k1[8] as Vector3).normalized(), (k2[8] as Vector3).normalized(), (k3[8] as Vector3).normalized(), u).normalized()
+	return [g, d, f, sc.x, sc.y, sc.z, trail_window, shp, shf]
 
 
 func _cr(p0: Vector3, p1: Vector3, p2: Vector3, p3: Vector3, u: float) -> Vector3:
