@@ -80,6 +80,8 @@ enum State { MOVE, ROLL, ABILITY, STAGGER, DEAD }
 var input: PlayerInput
 var cam: PlayerCamera
 var body: ShadowBody
+## Herkunft der Spielfigur (Ausrüstung im Stil ihrer Kaverne)
+var culture := "kiln"
 var abilities: Array = []  # 9 Plätze, Ability oder null
 
 var state: State = State.MOVE
@@ -139,12 +141,7 @@ func _ready() -> void:
 	add_child(col)
 	add_child(Hurtbox.new(self, Game.LAYER_PLAYER_HURTBOX, cap, Vector3(0, 0.775, 0)))
 
-	body = ShadowBody.new()
-	body.name = "Body"
-	body.has_lantern = true
-	body.build()
-	add_child(body)
-	body.rotation.y = facing_yaw
+	_build_body()
 
 	if is_local:
 		input = PlayerInput.new()
@@ -161,6 +158,32 @@ func _ready() -> void:
 	abilities[0] = HeavyStrike.new()
 	abilities[1] = ShieldBash.new()
 	Game.register_player(self)
+
+
+## Spielfigur im Frayed-Stil; die Kultur (Ausrüstung) kommt aus Game.culture.
+func _build_body() -> void:
+	if body:
+		body.queue_free()
+	body = ShadowBody.new()
+	body.name = "Body"
+	body.outfit = culture
+	body.has_lantern = true
+	body.build()
+	add_child(body)
+	body.rotation.y = facing_yaw
+
+
+## Kultur wechseln (F2 im Testlevel). Neue Figur, gleiche Werte.
+func set_culture(c: String) -> void:
+	culture = c
+	_build_body()
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if is_local and event.is_action_pressed("cycle_culture"):
+		var i := FrayedOutfit.CULTURES.find(culture)
+		set_culture(FrayedOutfit.CULTURES[(i + 1) % FrayedOutfit.CULTURES.size()])
+		FX.number(self, global_position + Vector3.UP * 2.1, FrayedOutfit.DISPLAY[culture], Color(0.95, 0.85, 0.6), true)
 
 
 func _exit_tree() -> void:

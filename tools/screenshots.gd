@@ -19,14 +19,16 @@ func _ready() -> void:
 		["04_ramp", Vector3(0, 0.1, -44), 0.0, -0.2, 6.0],
 		["05_sealed_hall", Vector3(0, -2.9, -62), 0.0, -0.12, 7.0],
 		["06_closeup", Vector3(0, 0.1, -30), 2.0, -0.15, 2.6],
-		["07_husk_close", Vector3(-3, -2.9, -69), 0.0, -0.1, 3.5],
+		["07_hollowed_close", Vector3(-3, -2.9, -70), 0.0, -0.1, 3.5],
+		["08_splinterkin", Vector3(-9.5, -2.9, -63.5), -1.2, -0.25, 3.2],
+		["09_player_front", Vector3(0, 0.1, 9), PI, -0.08, 2.4],
 	]
 	for s in shots:
 		p.global_position = s[1]
 		p.velocity = Vector3.ZERO
 		p.facing_yaw = s[2]
 		p.reset_physics_interpolation()
-		p.cam.yaw = s[2] if s[0] != "06_closeup" else s[2] + PI
+		p.cam.yaw = s[2] if s[0] not in ["06_closeup", "09_player_front"] else s[2] + PI
 		p.cam.pitch = s[3]
 		p.cam.target_distance = s[4]
 		p.cam.distance = s[4]

@@ -1,8 +1,8 @@
 # Underground Roguelite – Solo-Prototyp
 
 Low-Poly Action-Roguelite in Godot 4.7. Dieser Stand ist ein Testlevel mit drei Räumen,
-um Steuerung, Kamera und Kampfgefühl auszuprobieren. Die Figuren (Shades, Trainingspuppe)
-sind in Blender gebaut, die Level-Geometrie entsteht noch prozedural im Code.
+um Steuerung, Kamera und Kampfgefühl auszuprobieren. Die Shades im Frayed-Stil stammen aus der
+Konzeptseite (siehe unten), die Trainingspuppe aus Blender, die Level-Geometrie entsteht prozedural im Code.
 
 ## Modelle (Blender)
 
@@ -35,6 +35,7 @@ Alle Texte im Spiel sind Englisch, Code-Kommentare und Doku Deutsch.
 | Rechte Maustaste (oder Q) halten | blocken in Kamerarichtung (Ausdauer statt Leben). Q kurz vor dem Treffer = Parade |
 | 1 / 2 | Heavy Strike / Shield Bash |
 | Alt halten | Cursor freigeben |
+| F2 | Kultur der Spielfigur wechseln (The Kiln → Rimefall → Glowmire) |
 | F1 / F3 / Esc | Hilfe / Debug-Anzeige / Pause |
 
 Es gibt **kein Anvisieren**: Angriffe gehen in Kamerarichtung und treffen alles im Bogen davor.
@@ -45,9 +46,28 @@ verlagert sein Gewicht kurz vor dem Treffer nach vorn.
 
 1. **The Threshold** – Tor nach Vigil, Laufen, Springen, Rampe und Trümmer-Parcours.
 2. **Wardens' Ring** – drei Trainingspuppen für Angriffe und Fähigkeiten.
-3. **The Sunken Gate** (tiefer gelegen, mit versiegeltem Tor) – drei Hollow Shades, die zurückschlagen.
-   Die Augen glühen beim Ausholen auf. Dann blocken, parieren oder durchrollen.
+3. **The Sunken Gate** (tiefer gelegen, mit versiegeltem Tor) – Willfaults:
+   - **Hollowed** (zwei): humanoide Willfaults, zersplitterte Schatten früherer Shades mit Resten ihrer
+     Ausrüstung. Die violetten Augen glühen beim Ausholen auf. Dann blocken, parieren oder durchrollen.
+   - **Splinterkin** (Rudel aus vier): lauern am Kristall, weil Willfaults vom Licht angezogen werden.
+     Sie umkreisen die Laterne, immer nur einer duckt sich (Augen glühen) und springt geradeaus.
+     Seitlich ausweichen oder rollen, danach ist er kurz wehrlos.
    Besiegte Gegner erscheinen nach einigen Sekunden neu.
+
+## Spielfigur im Frayed-Stil
+
+Die Shades sind manifestierte Schatten: schwarzer Körper mit flackerndem Flammensaum, am Kopf als
+Frisur. Ausrüstung im Stil der Herkunfts-Kaverne, wählbar mit F2:
+
+- **The Kiln**: Kobalt-Glasurhemd, Messing, Krummsäbel, Keramik-Buckler.
+- **Rimefall**: Filz und Knochen, Frostglas-Axt, Fellschild.
+- **Glowmire**: Lack und Sporenperlen, schmale Klinge, Papierlaterne am Bambusstab (kein Schild,
+  Blocken mit der Klinge, die Laterne ersetzt die Gürtellaterne).
+
+Modelle kommen aus der Konzeptseite (Export: `tools/frayed_export/`), der Flammensaum ist ein Shader
+(`assets/shaders/frayed_hem.gdshader`), hängende Stoffe, Bänder und Perlenschnüre simuliert
+`scripts/player/frayed_cloth.gd` mit Körperkollision. Vorschau aller Kulturen:
+`godot --path . tools/preview_frayed.tscn -- <ordner>`, Willfaults: `tools/preview_willfaults.tscn`.
 
 ## Game-Feel-Bausteine
 
@@ -73,7 +93,7 @@ scripts/
   player/                 Controller, Eingabe, WoW-Kamera, prozedurale Spielfigur
   abilities/              Fähigkeiten-Basis + Heavy Strike, Shield Bash
   combat/                 DamageInfo, Hitbox, Hurtbox
-  enemies/                Enemy-Basis, Training Dummy, Hollow Shade
+  enemies/                Enemy-Basis, Training Dummy, Willfaults (Hollowed, Splinterkin)
   fx/                     Funken, Zahlen, Staub, Schwungspur
   ui/                     HUD, Aktionsleiste, Zielmarker
   level/test_level.gd     baut die drei Räume

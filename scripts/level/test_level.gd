@@ -5,7 +5,7 @@ extends Node3D
 ##
 ##  Raum 1 "The Threshold"    – Tor nach Vigil, letztes Feuer, Parcours auf Trümmern, Rampe
 ##  Raum 2 "Wardens' Ring"    – Übungsring mit Puppen aus Wurzelholz
-##  Raum 3 "The Sunken Gate"  – versiegeltes Tor nach unten, Hollow Shades schlagen zurück
+##  Raum 3 "The Sunken Gate"  – versiegeltes Tor nach unten, Willfaults (Hollowed, Splinterkin-Rudel) greifen an
 ##
 ## Die Räume liegen hintereinander Richtung -Z, Raum 3 liegt tiefer (es geht nach unten).
 
@@ -211,15 +211,27 @@ func _build_room_sealed() -> void:
 		_rock(Vector3(_rng.randf_range(-15, 15), y + 0.2, _rng.randf_range(-92, -61)), _rng.randf_range(0.3, 0.9), false)
 	_stalactites(c, 15.0, 13.0, 16)
 	# Gegner
-	for p in [Vector3(-5, y + 0.1, -72), Vector3(5, y + 0.1, -74), Vector3(0, y + 0.1, -80)]:
-		_spawn_husk(Transform3D(Basis(Vector3.UP, 0.0), p))
+	# Willfaults: zwei Hollowed in der Mitte, ein Splinterkin-Rudel lauert am Kristall (vom Licht angezogen)
+	for p in [Vector3(-4, y + 0.1, -74), Vector3(5, y + 0.1, -80)]:
+		_spawn_hollowed(Transform3D(Basis(Vector3.UP, 0.0), p))
+	for i in 4:
+		var a := TAU * i / 4.0
+		_spawn_splinterkin(Transform3D(Basis(Vector3.UP, a), Vector3(-12.5 + cos(a) * 1.8, y + 0.1, -64.5 + sin(a) * 1.8)), a)
 
 
-func _spawn_husk(xf: Transform3D) -> void:
-	var h := Husk.new()
+func _spawn_hollowed(xf: Transform3D) -> void:
+	var h := Hollowed.new()
 	h.transform = xf
-	h.respawn_requested.connect(func(_old): get_tree().create_timer(2.0).timeout.connect(func(): _spawn_husk(xf)))
+	h.respawn_requested.connect(func(_old): get_tree().create_timer(2.0).timeout.connect(func(): _spawn_hollowed(xf)))
 	add_child(h)
+
+
+func _spawn_splinterkin(xf: Transform3D, angle: float) -> void:
+	var k := Splinterkin.new()
+	k.transform = xf
+	k.pack_angle = angle
+	k.respawn_requested.connect(func(_old): get_tree().create_timer(4.0).timeout.connect(func(): _spawn_splinterkin(xf, angle)))
+	add_child(k)
 
 
 func _spawn_player(pos: Vector3, yaw: float) -> void:
