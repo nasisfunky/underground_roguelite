@@ -158,7 +158,10 @@ class Part:
         for v in self.bm.verts:
             v.co += Vector((rnd.uniform(-1, 1), rnd.uniform(-1, 1), rnd.uniform(-1, 1))) * amount
 
-    def build(self, location=(0, 0, 0), collection=None):
+    def build(self, location=(0, 0, 0), collection=None, scale=1.0):
+        if scale != 1.0:
+            vec = scale if isinstance(scale, tuple) else (scale, scale, scale)
+            bmesh.ops.scale(self.bm, vec=vec, verts=self.bm.verts)
         bmesh.ops.remove_doubles(self.bm, verts=self.bm.verts, dist=1e-5)
         bmesh.ops.recalc_face_normals(self.bm, faces=self.bm.faces)
         me = bpy.data.meshes.new(self.name)
@@ -184,13 +187,14 @@ def jag(amount, seed, sides):
 # Proportionen (Godot-Meter). Gedrungen: großer Kopf/Kapuze, kurzer Rumpf, kurze Spitzbeine.
 # ------------------------------------------------------------------
 
-HIP_Y = 0.66
+HIP_Y = 0.78
 CHEST_Y = HIP_Y + 0.04  # Brust-Gelenk
-HEAD_Y = CHEST_Y + 0.62
-THIGH = 0.32
-SHIN = 0.36
-UPPER_ARM = 0.24
-LOWER_ARM = 0.28
+HEAD_Y = CHEST_Y + 0.64
+HEAD_SCALE = 0.8  # kleinerer Kopf, weniger Chibi
+THIGH = 0.38
+SHIN = 0.43
+UPPER_ARM = 0.29
+LOWER_ARM = 0.33
 SHOULDER_X = 0.21
 SHOULDER_Y = CHEST_Y + 0.43
 
@@ -229,7 +233,7 @@ def build_shade(col):
     # Knoten an der Seite
     p.loft([(0.42, 0.055, 0.045, 0.17, -0.1), (0.48, 0.07, 0.055, 0.19, -0.11), (0.54, 0.045, 0.04, 0.18, -0.1)],
            5, "Scarf")
-    p.build((0, CHEST_Y, 0), col)
+    p.build((0, CHEST_Y, 0), col, (0.86, 0.86, 1.0))  # schmaler -> wirkt weniger kopflastig
 
     p = Part("ScarfTail")  # hängt hinten, schwingt beim Laufen
     w0, w1 = 0.09, 0.06
@@ -268,7 +272,7 @@ def build_shade(col):
     p = Part("Head")
     p.loft([(-0.15, 0.0, 0.0, 0, 0.0), (-0.1, 0.12, 0.11, 0, 0), (0.02, 0.17, 0.15, 0, 0),
             (0.12, 0.13, 0.12, 0, 0.01), (0.18, 0, 0, 0, 0.02)], 7, "Skin")
-    p.build((0, HEAD_Y, 0), col)
+    p.build((0, HEAD_Y, 0), col, HEAD_SCALE)
 
     p = Part("Eyes")
     for sx in (-1, 1):
@@ -279,7 +283,7 @@ def build_shade(col):
         if sx < 0:
             pts = list(reversed(pts))
         p.quad(pts, "Eye")
-    p.build((0, HEAD_Y, 0), col)
+    p.build((0, HEAD_Y, 0), col, HEAD_SCALE)
 
     # --- Kopfbedeckungen ---
     def hood_face(li, si, c):
@@ -296,7 +300,7 @@ def build_shade(col):
            7, "Cloth", cap_bottom=False, rot=-math.pi / 2, face_material=hood_face)
     p.loft([(-0.1, 0.26, 0.26, 0, -0.01), (-0.06, 0.255, 0.255, 0, -0.01)], 7, "Trim",
            cap_bottom=False, cap_top=False, rot=-math.pi / 2)
-    p.build((0, HEAD_Y, 0), col)
+    p.build((0, HEAD_Y, 0), col, HEAD_SCALE)
 
     p = Part("HornedHelm")
     p.loft([(-0.14, 0.22, 0.22, 0, 0), (0.05, 0.215, 0.215, 0, 0), (0.18, 0.17, 0.17, 0, 0.01),
@@ -314,33 +318,33 @@ def build_shade(col):
         rings = [(y, r, r, ox, oz) for (r, y, _, ox, oz) in pts]
         rings[-1] = (rings[-1][0], 0, 0, rings[-1][3], rings[-1][4])
         p.loft(rings, 5, "Bone")
-    p.build((0, HEAD_Y, 0), col)
+    p.build((0, HEAD_Y, 0), col, HEAD_SCALE)
 
     p = Part("WideHat")
     p.loft([(-0.02, 0.44, 0.44, 0, 0), (0.02, 0.43, 0.43, 0, 0), (0.2, 0.0, 0.0, 0, 0)], 8, "Cloth")
     p.loft([(-0.14, 0.19, 0.19, 0, 0), (0.0, 0.2, 0.2, 0, 0)], 7, "Void", cap_bottom=False)
-    p.build((0, HEAD_Y + 0.08, 0), col)
+    p.build((0, HEAD_Y + 0.08 * HEAD_SCALE, 0), col, HEAD_SCALE)
 
     # --- Beine: kurz, kräftig oben, laufen in Spitzen aus ---
     for side, sx in (("L", -1), ("R", 1)):
         p = Part("Thigh" + side)
-        p.loft([(0.02, 0.08, 0.075, 0, 0), (-0.12, 0.075, 0.07, 0, -0.01), (-THIGH, 0.055, 0.052, 0, 0)],
+        p.loft([(0.02, 0.08, 0.075, 0, 0), (-0.14, 0.075, 0.07, 0, -0.01), (-THIGH, 0.055, 0.052, 0, 0)],
                5, "Skin", rot=math.pi / 5)
         p.build((sx * 0.085, HIP_Y, 0), col)
         p = Part("Shin" + side)
-        p.loft([(0.0, 0.055, 0.052, 0, 0), (-0.14, 0.05, 0.048, 0, -0.012), (-0.26, 0.032, 0.03, 0, -0.008),
+        p.loft([(0.0, 0.055, 0.052, 0, 0), (-0.17, 0.05, 0.048, 0, -0.012), (-0.31, 0.032, 0.03, 0, -0.008),
                 (-SHIN, 0, 0, 0, 0.0)], 5, "Skin", rot=math.pi / 5)
-        p.loft([(-0.05, 0.064, 0.06, 0, -0.004), (-0.13, 0.059, 0.056, 0, -0.012)], 5, "Trim", rot=math.pi / 5 + 0.3)
+        p.loft([(-0.06, 0.064, 0.06, 0, -0.004), (-0.16, 0.059, 0.056, 0, -0.012)], 5, "Trim", rot=math.pi / 5 + 0.3)
         p.build((sx * 0.085, HIP_Y - THIGH, 0), col)
         # --- Arme: kurz, Spitzen statt Finger ---
         p = Part("UpperArm" + side)
-        p.loft([(0.02, 0.058, 0.055, 0, 0), (-0.1, 0.054, 0.05, 0, 0), (-UPPER_ARM, 0.042, 0.04, 0, 0)],
+        p.loft([(0.02, 0.058, 0.055, 0, 0), (-0.12, 0.054, 0.05, 0, 0), (-UPPER_ARM, 0.042, 0.04, 0, 0)],
                5, "Skin", rot=math.pi / 5)
         p.build((sx * SHOULDER_X, SHOULDER_Y, 0.02), col)
         p = Part("Forearm" + side)
-        p.loft([(0.0, 0.042, 0.04, 0, 0), (-0.14, 0.04, 0.038, 0, 0), (-0.22, 0.03, 0.028, 0, 0),
+        p.loft([(0.0, 0.042, 0.04, 0, 0), (-0.165, 0.04, 0.038, 0, 0), (-0.26, 0.03, 0.028, 0, 0),
                 (-LOWER_ARM, 0, 0, 0, 0)], 5, "Skin", rot=math.pi / 5)
-        p.loft([(-0.04, 0.05, 0.048, 0, 0), (-0.13, 0.047, 0.045, 0, 0)], 5, "Trim", rot=0.4)
+        p.loft([(-0.05, 0.05, 0.048, 0, 0), (-0.155, 0.047, 0.045, 0, 0)], 5, "Trim", rot=0.4)
         p.build((sx * SHOULDER_X, SHOULDER_Y - UPPER_ARM, 0.02), col)
 
     # --- Schwert: Griff am Ursprung, Klinge entlang -Z ---

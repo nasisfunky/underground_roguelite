@@ -54,18 +54,18 @@ var tabard_back: Node3D
 var eye_mat: StandardMaterial3D
 
 # Proportionen (müssen zu tools/blender/build_shade.py passen)
-const UPPER_ARM := 0.24
-const LOWER_ARM := 0.28
-const THIGH := 0.32
-const SHIN := 0.36
+const UPPER_ARM := 0.29
+const LOWER_ARM := 0.33
+const THIGH := 0.38
+const SHIN := 0.43
 const RIG_Y := 0.45  ## Drehpunkt für Rolle/Sturz
-const HIPS_Y := 0.21  ## Hüfte relativ zum Rig -> 0,66 m über dem Boden
+const HIPS_Y := 0.33  ## Hüfte relativ zum Rig -> 0,78 m über dem Boden
 const CHEST_Y := 0.04
-const HEAD_Y := 0.62
+const HEAD_Y := 0.64
 const SHOULDER_L := Vector3(-0.21, 0.43, 0.02)
 const SHOULDER_R := Vector3(0.21, 0.43, 0.02)
 ## Posen wurden für die alten, längeren Arme geschrieben -> hier auf die neue Reichweite skaliert
-const POSE_SCALE := 0.8
+const POSE_SCALE := 0.92
 
 var _phase := 0.0
 var _time := 0.0
@@ -169,12 +169,12 @@ func build() -> void:
 		Headgear.HORNED_HELM:
 			_part(parts, "HornedHelm", head)
 		Headgear.WIDE_HAT:
-			_part(parts, "WideHat", head).position.y = 0.08
+			_part(parts, "WideHat", head).position.y = 0.064
 	var glow := OmniLight3D.new()
 	glow.light_color = eye_color
 	glow.light_energy = 0.35
 	glow.omni_range = 0.7
-	glow.position = Vector3(0, 0, -0.35)
+	glow.position = Vector3(0, 0, -0.28)
 	head.add_child(glow)
 
 	# Arme hängen direkt an diesem Knoten und werden per IK gesetzt
@@ -494,7 +494,7 @@ func tick(delta: float) -> void:
 
 
 func _scale_pose(v: Vector3) -> Vector3:
-	return Vector3(v.x * 0.9, 0.43 + (v.y - 0.47) * POSE_SCALE, v.z * POSE_SCALE)
+	return Vector3(v.x * 0.95, 0.43 + (v.y - 0.47) * POSE_SCALE, v.z * POSE_SCALE)
 
 
 ## Basis mit z = Vorwärts-Achse (lokal -Z zeigt dann in Gegenrichtung von z) und x so nah wie möglich an hint.
