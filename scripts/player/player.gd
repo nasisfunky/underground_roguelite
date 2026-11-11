@@ -464,7 +464,7 @@ func _end_roll() -> void:
 
 
 # ------------------------------------------------------------------
-# Angriffe: Linksklick = Hieb (Kombo Vorhand/Rückhand), Rechtsklick = Stich.
+# Angriffe: Linksklick = Hieb (Kombo Vorhand/Rückhand), mittlere Maustaste = Stich, Rechtsklick = Blocken.
 # Kein Anvisieren: geschlagen wird in Kamerarichtung, getroffen wird alles im Bogen.
 # ------------------------------------------------------------------
 

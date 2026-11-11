@@ -85,6 +85,7 @@ func _setup_input() -> void:
 	_key("toggle_control_mode", [KEY_F2])
 	_key("toggle_debug", [KEY_F3])
 	_key("pause", [KEY_ESCAPE])
+	_mouse("block", MOUSE_BUTTON_RIGHT)
 	_mouse("block", MOUSE_BUTTON_XBUTTON1)
 	_mouse("roll", MOUSE_BUTTON_XBUTTON2)
 

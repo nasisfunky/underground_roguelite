@@ -73,10 +73,10 @@ func setup(p: Player) -> void:
 	_help = _label(13, Color(0.8, 0.92, 0.92, 0.9))
 	_help.position = Vector2(18, 16)
 	_help.text = """WASD  move        Space  jump (hold = higher)
-Shift  roll (in move direction)        Hold Q  block (early = parry)
+Shift  roll (in move direction)        Hold right mouse / Q  block (early = parry)
 Mouse  camera        Mouse wheel  zoom        Hold Alt  free cursor
 Left click  attack (click again in rhythm = combo)
-Right click  thrust (sword alt attack, more reach)
+Middle mouse  thrust (sword alt attack, more reach)
 1  Heavy Strike        2  Shield Bash
 F1 Help   F3 Debug   Esc Pause"""
 	root.add_child(_help)

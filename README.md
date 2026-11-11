@@ -28,11 +28,11 @@ Alle Texte im Spiel sind Englisch, Code-Kommentare und Doku Deutsch.
 | WASD | laufen (relativ zur Kamera, der Charakter dreht sich in Laufrichtung) |
 | Maus | Kamera drehen (Cursor ist im Spiel versteckt) |
 | Linksklick | Hieb. Im Rhythmus nachklicken = Kombo Vorhand → Rückhand |
-| Rechtsklick | Alternativangriff der Waffe, beim Schwert ein Stich (mehr Reichweite und Schaden, schmal) |
+| Mittlere Maustaste | Alternativangriff der Waffe, beim Schwert ein Stich (mehr Reichweite und Schaden, schmal) |
 | Mausrad | Zoom |
 | Leertaste | springen (halten = höher, antippen = kleiner Hüpfer) |
 | Shift | rollen in Laufrichtung (kurz unverwundbar, kostet Ausdauer) |
-| Q halten | blocken in Kamerarichtung (Ausdauer statt Leben). Q kurz vor dem Treffer = Parade |
+| Rechte Maustaste (oder Q) halten | blocken in Kamerarichtung (Ausdauer statt Leben). Q kurz vor dem Treffer = Parade |
 | 1 / 2 | Heavy Strike / Shield Bash |
 | Alt halten | Cursor freigeben |
 | F1 / F3 / Esc | Hilfe / Debug-Anzeige / Pause |

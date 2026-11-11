@@ -144,7 +144,7 @@ static func builtin(clip_name: String) -> Dictionary:
 			]
 		"thrust":
 			# Stich: Klinge zurückziehen, gerade nach vorn stoßen, Schild bleibt vorn
-			d.label = "Thrust (right click)"
+			d.label = "Thrust (middle mouse)"
 			d.duration = 1.05
 			d.hit = 0.46
 			d.trail = [0.38, 0.52]

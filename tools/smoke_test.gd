@@ -87,7 +87,7 @@ func _ready() -> void:
 	var hp_before: float = dummy.health
 	p.input._attack = 2
 	await _phys(3)
-	_check("Rechtsklick startet Stich", p._swing_index == 3, "Clip %d" % p._swing_index)
+	_check("Mittlere Maustaste startet Stich", p._swing_index == 3, "Clip %d" % p._swing_index)
 	await _phys(80)
 	_check("Stich trifft stärker", hp_before - dummy.health > p.swing_damage * 1.2, "%.1f Schaden" % (hp_before - dummy.health))
 	await _phys(40)

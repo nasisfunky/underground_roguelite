@@ -7,7 +7,8 @@ extends Node
 ## Action-Steuerung:
 ##   Maus bewegen     -> Kamera dreht frei um den Charakter (Cursor im Spiel versteckt)
 ##   Linksklick       -> normaler Angriff (Kombo)
-##   Rechtsklick      -> Alternativangriff der Waffe (Schwert: Stich)
+##   Rechtsklick      -> blocken (halten; früh = Parade)
+##   Mittlere Taste   -> Alternativangriff der Waffe (Schwert: Stich)
 ##   Alt halten       -> Cursor kurz freigeben
 ## Fähigkeiten liegen auf 1-9.
 
@@ -33,7 +34,7 @@ var zoom_delta := 0.0
 var _jump_pressed := false
 var _roll_pressed := false
 var _target_next := false
-var _attack: int = 0  # 1 = normal (LMB), 2 = alternativ (RMB)
+var _attack: int = 0  # 1 = normal (LMB), 2 = alternativ (MMB)
 var _ability: int = 0  # 1..9, 0 = keine
 var _alt_free := false
 
@@ -69,10 +70,11 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
 		match mb.button_index:
-			MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT:
+			MOUSE_BUTTON_LEFT, MOUSE_BUTTON_MIDDLE, MOUSE_BUTTON_RIGHT:
 				if mb.pressed:
 					if captured:
-						_attack = 1 if mb.button_index == MOUSE_BUTTON_LEFT else 2
+						if mb.button_index != MOUSE_BUTTON_RIGHT:  # rechts = blocken (über die Aktion "block")
+							_attack = 1 if mb.button_index == MOUSE_BUTTON_LEFT else 2
 					elif not _alt_free:
 						capture_mouse()  # erster Klick nach Fokusverlust holt nur die Maus zurück
 			MOUSE_BUTTON_WHEEL_UP:
