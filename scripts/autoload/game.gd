@@ -63,7 +63,7 @@ func light_level_at(pos: Vector3) -> float:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_control_mode"):
-		classic_turning = not classic_turning
+		pass  # klassische Drehung entfällt mit der Action-Steuerung
 
 
 # --- Eingabebelegung ---

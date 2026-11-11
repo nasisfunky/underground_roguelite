@@ -15,7 +15,6 @@ extends CharacterBody3D
 
 signal health_changed(current: float, maximum: float)
 signal stamina_changed(current: float, maximum: float)
-signal target_changed(target: Node3D)
 signal died
 signal ability_used(slot: int)
 
@@ -32,7 +31,6 @@ enum State { MOVE, ROLL, ABILITY, STAGGER, DEAD }
 @export var ground_decel := 24.0
 @export var air_accel := 18.0
 @export var turn_sharpness := 8.0
-@export var classic_turn_rate := 3.6  # rad/s für A/D im klassischen Modus
 
 @export_group("Springen")
 @export var jump_height := 1.35
@@ -55,13 +53,23 @@ enum State { MOVE, ROLL, ABILITY, STAGGER, DEAD }
 @export var block_arc_deg := 75.0
 @export var block_stamina_per_damage := 1.4
 
-@export_group("Auto-Angriff")
-@export var swing_interval := 1.35  # Waffengeschwindigkeit
-@export var swing_duration := 0.95
-@export var swing_hit_at := 0.44  # normierte Zeit des Treffers
+@export_group("Angriff")
+@export var swing_duration := 0.95  # wird aus dem Clip gelesen
+@export var swing_hit_at := 0.44  # normierte Zeit des Treffers (aus dem Clip)
 @export var melee_range := 2.4
 @export var swing_damage := 9.0
 @export var swing_arc_deg := 80.0
+@export var swing_cost := 14.0  # Ausdauer pro Hieb
+@export var combo_window := 0.68  # ab hier (normiert) schließt ein vorgemerkter Hieb direkt an
+@export var combo_reset := 0.45  # s nach Hiebende, bis die Kombo wieder mit der Vorhand beginnt
+@export var attack_buffer_time := 0.5  # so lange vor dem Kombofenster darf schon geklickt werden
+@export var attack_move_mult := 0.2  # Laufen während eines Hiebs (gewichtig: fast stehen)
+@export var swing_lunge := 1.6  # m/s Vorwärtsschub kurz vor dem Treffer
+@export var thrust_damage_mult := 1.5
+@export var thrust_reach_bonus := 0.8
+@export var thrust_arc_deg := 28.0
+@export var thrust_cost := 20.0
+@export var thrust_lunge := 3.2
 
 @export_group("Werte")
 @export var max_health := 100.0
@@ -72,7 +80,6 @@ enum State { MOVE, ROLL, ABILITY, STAGGER, DEAD }
 var input: PlayerInput
 var cam: PlayerCamera
 var body: ShadowBody
-var target: Node3D
 var abilities: Array = []  # 9 Plätze, Ability oder null
 
 var state: State = State.MOVE
@@ -94,11 +101,14 @@ var _roll_peak := 0.0
 var _blocking := false
 var _block_t := 0.0
 var _block_released_t := 10.0
-var _swing_cd := 0.0
-var _lmb_was_held := false
-var _lmb_yaw := 0.0
 var _swing_t := -1.0  # <0 = kein Schwung aktiv
-var _swing_index := 0
+var _swing_index := 0  # Clip: 0 Vorhand, 1 Rückhand, 3 Stich
+var _swing_kind := 1  # 1 normal, 2 Stich
+var _swing_yaw := 0.0  # Angriffsrichtung (Kamera)
+var _since_swing := 10.0
+var _queued_attack := 0
+var _queued_t := 0.0
+var _nearby: Node3D  ## nächster Gegner in Kampfnähe (nur für Haltung/Blick, kein Anvisieren)
 var _swing_hit_done := false
 var _anim_hitstop := 0.0
 var _stagger_len := 0.4
@@ -106,7 +116,6 @@ var _ability: Ability
 var _ability_slot := 0
 var _dead_t := 0.0
 var _move_local := Vector2.ZERO
-var _auto_target_cd := 0.0
 
 
 func _ready() -> void:
@@ -206,7 +215,7 @@ func ability_cooldown(slot: int) -> float:
 func _physics_process(delta: float) -> void:
 	_read_input(delta)
 	_tick_timers(delta)
-	_update_target(delta)
+	_update_nearby()
 
 	match state:
 		State.MOVE:
@@ -246,11 +255,14 @@ func _read_input(delta: float) -> void:
 	var ab := input.consume_ability()
 	if ab > 0:
 		_set_buffer(&"ability", ab)
-	if input.consume_target_next():
-		cycle_target()
-	var click: Variant = input.consume_click()
-	if click != null:
-		_click_select(click)
+	var atk := input.consume_attack()
+	if atk > 0:
+		_queued_attack = atk
+		_queued_t = attack_buffer_time
+	if _queued_t > 0.0:
+		_queued_t -= delta
+		if _queued_t <= 0.0:
+			_queued_attack = 0
 	if _buffer_t > 0.0:
 		_buffer_t -= delta
 		if _buffer_t <= 0.0:
@@ -277,8 +289,8 @@ func _tick_timers(delta: float) -> void:
 		_jumping = false
 	else:
 		_coyote -= delta
-	if _swing_cd > 0.0:
-		_swing_cd -= delta
+	if _swing_t < 0.0:
+		_since_swing += delta
 	for a in abilities:
 		if a:
 			a.cooldown_left = maxf(a.cooldown_left - delta, 0.0)
@@ -312,36 +324,12 @@ func _desired_direction(delta: float, allow_turn := true) -> Vector3:
 	if not input:
 		return Vector3.ZERO
 	var m := input.move
-	if input.lmb_held and input.rmb_held:
-		m.y = clampf(m.y + 1.0, -1.0, 1.0)  # beide Maustasten = vorwärts
-	var basis_yaw: float
-	# LMB allein dreht nur die Kamera: Laufrichtung bleibt an der Blickrichtung beim Drücken
-	if input.lmb_held and not input.rmb_held:
-		if not _lmb_was_held:
-			_lmb_yaw = camera_yaw() if not Game.classic_turning else facing_yaw
-		_lmb_was_held = true
-	else:
-		_lmb_was_held = false
-	if input.rmb_held:
-		# Mouselook: Charakter schaut immer dorthin, wo die Kamera hinschaut. A/D = seitwärts.
-		facing_yaw = camera_yaw()
-		basis_yaw = facing_yaw
-	elif Game.classic_turning:
-		# Klassisch WoW: A/D drehen den Charakter, W/S entlang der Blickrichtung.
-		if allow_turn:
-			facing_yaw -= m.x * classic_turn_rate * delta
-		m.x = 0.0
-		basis_yaw = facing_yaw
-	elif _lmb_was_held:
-		basis_yaw = _lmb_yaw
-	else:
-		# Hybrid: kamera-relativ, Charakter dreht sich in Laufrichtung.
-		basis_yaw = camera_yaw()
+	# Kamera-relativ: W läuft dorthin, wohin die Kamera schaut; der Charakter dreht sich in Laufrichtung.
+	var basis_yaw := camera_yaw()
 	var dir := Basis(Vector3.UP, basis_yaw) * Vector3(m.x, 0.0, -m.y)
 	if dir.length_squared() > 1.0:
 		dir = dir.normalized()
-	var free_turn := not input.rmb_held and not Game.classic_turning
-	if allow_turn and free_turn and dir.length_squared() > 0.01 and not _blocking:
+	if allow_turn and _swing_t < 0.0 and dir.length_squared() > 0.01 and not _blocking:
 		var want := atan2(-dir.x, -dir.z)
 		facing_yaw = lerp_angle(facing_yaw, want, 1.0 - exp(-turn_sharpness * delta))
 	return dir
@@ -352,7 +340,7 @@ func _state_move(delta: float) -> void:
 	var dir := _desired_direction(delta)
 
 	# Blocken (halten)
-	var want_block: bool = input != null and input.block_held and is_on_floor()
+	var want_block: bool = input != null and input.block_held and is_on_floor() and _swing_t < 0.0
 	if want_block and not _blocking:
 		_blocking = true
 		_block_t = 0.0
@@ -361,18 +349,16 @@ func _state_move(delta: float) -> void:
 		_block_released_t = 0.0
 	if _blocking:
 		_block_t += delta
-		_face_target_soft(delta, 10.0)
-	elif dir.length_squared() < 0.01 and target and input and not input.rmb_held and target.global_position.distance_to(global_position) < melee_range + 3.0:
-		# Im Stand dreht sich der Charakter von selbst zum Ziel (Auto-Angriff braucht Blickrichtung)
-		_face_target_soft(delta, 8.0)
+		# Deckung zeigt in Kamerarichtung
+		facing_yaw = lerp_angle(facing_yaw, camera_yaw(), 1.0 - exp(-10.0 * delta))
 
 	var spd := run_speed
-	var fwd_amount := dir.dot(forward())
-	if fwd_amount < -0.3 and input and (input.rmb_held or Game.classic_turning):
-		spd *= backpedal_mult
 	if _blocking:
 		spd *= block_speed_mult
-	_horizontal_move(dir * spd, delta)
+	var want_vel := dir * spd
+	if _swing_t >= 0.0:
+		want_vel = dir * spd * attack_move_mult + forward() * _lunge_speed()
+	_horizontal_move(want_vel, delta)
 
 	# Aktionen
 	if _buffer == &"jump" and _coyote > 0.0:
@@ -383,15 +369,13 @@ func _state_move(delta: float) -> void:
 		_start_roll(dir)
 	elif _buffer == &"ability":
 		_try_ability(_buffer_ability)
+	elif _queued_attack > 0 and _can_start_attack():
+		_start_attack(_queued_attack)
 
 	# Variable Sprunghöhe
 	if _jumping and velocity.y > jump_cut_speed and input and not input.jump_held:
 		velocity.y = jump_cut_speed
 		_jumping = false
-
-	# Auto-Angriff starten
-	if _swing_t < 0.0 and _swing_cd <= 0.0 and not _blocking and _can_auto_attack():
-		_start_swing()
 
 
 func _horizontal_move(target_vel: Vector3, delta: float) -> void:
@@ -436,8 +420,7 @@ func _start_roll(dir: Vector3) -> void:
 	_blocking = false
 	_cancel_swing()
 	_set_state(State.ROLL)
-	if not (input and input.rmb_held):
-		facing_yaw = atan2(-_roll_dir.x, -_roll_dir.z)
+	facing_yaw = atan2(-_roll_dir.x, -_roll_dir.z)
 	collision_mask = Game.LAYER_WORLD  # durch Gegner hindurchrollen
 	FX.dust(self, global_position, 5, 0.8)
 
@@ -448,8 +431,6 @@ func _state_roll(delta: float) -> void:
 	var spd := _roll_peak * (1.0 - x * x)
 	velocity.x = _roll_dir.x * spd
 	velocity.z = _roll_dir.z * spd
-	if input and input.rmb_held:
-		facing_yaw = camera_yaw()
 	if state_t >= roll_cancel_at:
 		# Ab hier kann alles Vorgemerkte die Rolle abbrechen
 		if _buffer == &"roll" and stamina > 0.0 and is_on_floor():
@@ -465,6 +446,10 @@ func _state_roll(delta: float) -> void:
 			_end_roll()
 			_try_ability(_buffer_ability)
 			return
+		if _queued_attack > 0 and stamina > 0.0 and is_on_floor():
+			_end_roll()
+			_start_attack(_queued_attack)
+			return
 	if state_t >= roll_duration:
 		_end_roll()
 		# Schwung in die Laufbewegung mitnehmen
@@ -479,70 +464,91 @@ func _end_roll() -> void:
 
 
 # ------------------------------------------------------------------
-# Auto-Angriff
+# Angriffe: Linksklick = Hieb (Kombo Vorhand/Rückhand), Rechtsklick = Stich.
+# Kein Anvisieren: geschlagen wird in Kamerarichtung, getroffen wird alles im Bogen.
 # ------------------------------------------------------------------
 
-func _can_auto_attack() -> bool:
-	if not target or not is_instance_valid(target) or target.is_dead():
+func _can_start_attack() -> bool:
+	if state != State.MOVE or not is_on_floor() or stamina <= 0.0:
 		return false
-	if state != State.MOVE or not is_on_floor():
-		return false
-	return _target_in_melee(melee_range, swing_arc_deg)
-
-
-func _target_in_melee(reach: float, arc_deg: float) -> bool:
-	var to := target.global_position - global_position
-	var dy := absf(to.y)
-	to.y = 0.0
-	var r: float = target.radius if "radius" in target else 0.4
-	if to.length() > reach + r or dy > 2.0:
-		return false
-	if to.length() < 0.6:
+	if _swing_t < 0.0:
 		return true
-	return rad_to_deg(forward().angle_to(to.normalized())) <= arc_deg
+	return _swing_t / swing_duration >= combo_window
 
 
-func _start_swing() -> void:
+func _start_attack(kind: int) -> void:
+	_queued_attack = 0
+	_queued_t = 0.0
+	_blocking = false
+	if kind == 2:
+		_swing_index = 3
+	elif _swing_t >= 0.0 and _swing_index == 0:
+		_swing_index = 1  # Kombo: Rückhand schließt an die Vorhand an
+	elif _swing_t < 0.0 and _since_swing < combo_reset and _swing_index == 0:
+		_swing_index = 1
+	else:
+		_swing_index = 0
+	_swing_kind = kind
 	_swing_t = 0.0
 	_swing_hit_done = false
-	_swing_cd = swing_interval
-	_swing_index = 1 - _swing_index
+	_since_swing = 0.0
+	_spend_stamina(thrust_cost if kind == 2 else swing_cost)
+	_swing_yaw = camera_yaw()
 	# Dauer und Trefferzeitpunkt kommen aus der Animation (Animationswerkstatt)
 	var c: Dictionary = AnimLibrary.clip(AnimLibrary.CLIPS[_swing_index])
 	swing_duration = c.duration
 	swing_hit_at = c.hit
 
 
+## Kurzer Vorwärtsschub in den Treffer hinein (Gewicht nach vorn verlagern).
+func _lunge_speed() -> float:
+	if _swing_t < 0.0:
+		return 0.0
+	var t := _swing_t / swing_duration
+	var a := swing_hit_at - 0.16
+	if t < a or t > swing_hit_at + 0.04:
+		return 0.0
+	var x := (t - a) / 0.2
+	return (thrust_lunge if _swing_kind == 2 else swing_lunge) * sin(clampf(x, 0.0, 1.0) * PI)
+
+
 func _cancel_swing() -> void:
 	if _swing_t >= 0.0:
 		_swing_t = -1.0
-		# Abgebrochener Schwung: nächster kommt zügig, damit Rollen/Blocken nicht bestraft wird
-		_swing_cd = minf(_swing_cd, 0.25)
+		_since_swing = 10.0
 
 
 func _update_swing(delta: float) -> void:
 	if _swing_t < 0.0:
 		return
-	if state != State.MOVE or _blocking:
+	if state != State.MOVE:
 		_cancel_swing()
 		return
 	if _anim_hitstop > 0.0:
 		return
 	_swing_t += delta
-	if target and input and not input.rmb_held:
-		_face_target_soft(delta, 14.0)
 	var t := _swing_t / swing_duration
+	# in der Ausholphase zur Kamerarichtung drehen, danach ist die Richtung festgelegt
+	if t < swing_hit_at:
+		facing_yaw = lerp_angle(facing_yaw, _swing_yaw, 1.0 - exp(-16.0 * delta))
 	if not _swing_hit_done and t >= swing_hit_at:
 		_swing_hit_done = true
-		if target and is_instance_valid(target) and not target.is_dead() and _target_in_melee(melee_range + 0.4, swing_arc_deg + 15.0):
-			var info := DamageInfo.new()
+		var info := DamageInfo.new()
+		info.source = self
+		if _swing_kind == 2:
+			info.amount = swing_damage * thrust_damage_mult * randf_range(0.95, 1.05)
+			info.knockback = 2.2
+			info.poise_damage = 14.0
+			info.hitstop = 0.08
+			info.shake = 0.16
+			hit_cone(melee_range + thrust_reach_bonus, thrust_arc_deg, info)
+		else:
 			info.amount = swing_damage * randf_range(0.9, 1.1)
-			info.source = self
 			info.knockback = 1.5
 			info.poise_damage = 8.0
 			info.hitstop = 0.06
 			info.shake = 0.12
-			_deal_damage(target, info)
+			hit_cone(melee_range + 0.3, swing_arc_deg, info)
 	if t >= 1.0:
 		_swing_t = -1.0
 
@@ -554,17 +560,6 @@ func _deal_damage(victim: Node, info: DamageInfo) -> int:
 		if cam:
 			cam.add_trauma(info.shake)
 	return result
-
-
-func _face_target_soft(delta: float, sharpness: float) -> void:
-	if not target or not is_instance_valid(target):
-		return
-	var to := target.global_position - global_position
-	to.y = 0.0
-	if to.length_squared() < 0.01:
-		return
-	var want := atan2(-to.x, -to.z)
-	facing_yaw = lerp_angle(facing_yaw, want, 1.0 - exp(-sharpness * delta))
 
 
 # ------------------------------------------------------------------
@@ -579,9 +574,6 @@ func _try_ability(slot: int) -> void:
 	if a.cooldown_left > 0.0 or stamina < a.stamina_cost * 0.5:
 		# Bleibt im Buffer, falls die Abklingzeit gleich vorbei ist
 		return
-	if a.needs_target and (not target or not is_instance_valid(target) or target.is_dead()):
-		_consume_buffer(&"ability")
-		return
 	_consume_buffer(&"ability")
 	_blocking = false
 	_cancel_swing()
@@ -590,8 +582,8 @@ func _try_ability(slot: int) -> void:
 	a.cooldown_left = a.cooldown
 	_spend_stamina(a.stamina_cost)
 	_set_state(State.ABILITY)
-	if target and input and not input.rmb_held and a.snap_to_target:
-		_face_target_soft(1.0, 100.0)
+	if a.snap_to_target:
+		facing_yaw = camera_yaw()
 	a.start(self)
 	ability_used.emit(slot - 1)
 
@@ -608,7 +600,6 @@ func _state_ability(delta: float) -> void:
 		return
 	if done:
 		_set_state(State.MOVE)
-		_swing_cd = maxf(_swing_cd, 0.2)
 
 
 ## Wird von Fähigkeiten genutzt: trifft alle Gegner in einem Kegel vor dem Spieler.
@@ -735,72 +726,20 @@ func _set_state(s: State) -> void:
 
 
 # ------------------------------------------------------------------
-# Zielerfassung (WoW-artig)
+# Gegner in der Nähe (kein Anvisieren; nur für Kampfhaltung und Kopfdrehung)
 # ------------------------------------------------------------------
 
-func set_target(t: Node3D) -> void:
-	if t == target:
-		return
-	target = t
-	target_changed.emit(target)
-
-
-func _target_valid(t: Node3D) -> bool:
-	return t != null and is_instance_valid(t) and not t.is_dead() and t.global_position.distance_to(global_position) < 25.0
-
-
-func _update_target(delta: float) -> void:
-	if target and not _target_valid(target):
-		set_target(null)
-		_auto_target_cd = 0.25  # kurze Pause, damit der Wechsel lesbar bleibt
-	if target == null:
-		_auto_target_cd -= delta
-		if _auto_target_cd <= 0.0:
-			_auto_target_cd = 0.2
-			var best: Node3D = null
-			var best_d := 12.0
-			for e in get_tree().get_nodes_in_group("targetable"):
-				if e.is_dead():
-					continue
-				var d: float = e.global_position.distance_to(global_position)
-				if d < best_d:
-					best_d = d
-					best = e
-			if best:
-				set_target(best)
-
-
-## Tab: nächstes Ziel, nach Entfernung sortiert, bevorzugt im Sichtfeld der Kamera.
-func cycle_target() -> void:
-	var list: Array = []
-	var view_fwd := Basis(Vector3.UP, camera_yaw()) * Vector3.FORWARD
-	for e in get_tree().get_nodes_in_group("targetable"):
+func _update_nearby() -> void:
+	var best: Node3D = null
+	var best_d := melee_range + 3.5
+	for e in get_tree().get_nodes_in_group("enemies"):
 		if e.is_dead():
 			continue
-		var to: Vector3 = e.global_position - global_position
-		if to.length() > 25.0:
-			continue
-		to.y = 0.0
-		if to.length() > 2.0 and rad_to_deg(view_fwd.angle_to(to.normalized())) > 90.0:
-			continue
-		list.append(e)
-	if list.is_empty():
-		return
-	list.sort_custom(func(a, b): return a.global_position.distance_to(global_position) < b.global_position.distance_to(global_position))
-	var i := list.find(target)
-	set_target(list[(i + 1) % list.size()])
-
-
-func _click_select(screen_pos: Vector2) -> void:
-	if not cam:
-		return
-	var c := cam.camera
-	var from := c.project_ray_origin(screen_pos)
-	var to := from + c.project_ray_normal(screen_pos) * 60.0
-	var q := PhysicsRayQueryParameters3D.create(from, to, Game.LAYER_WORLD | Game.LAYER_ENEMIES)
-	var hit := get_world_3d().direct_space_state.intersect_ray(q)
-	if hit and hit.collider is Enemy and not hit.collider.is_dead():
-		set_target(hit.collider)
+		var d: float = e.global_position.distance_to(global_position)
+		if d < best_d:
+			best_d = d
+			best = e
+	_nearby = best
 
 
 # ------------------------------------------------------------------
@@ -821,9 +760,10 @@ func _update_body(delta: float) -> void:
 	body.vertical_velocity = velocity.y
 	body.block_amount = move_toward(body.block_amount, 1.0 if _blocking else 0.0, delta * 9.0)
 	# Kampfhaltung, sobald ein anvisiertes Ziel in Reichweite ist
-	var engaged: bool = target != null and is_instance_valid(target) and not target.is_dead() and target.global_position.distance_to(global_position) < melee_range + 3.5
+	# Kampfhaltung: Gegner in der Nähe oder gerade im Kampf (Hieb/Deckung)
+	var engaged: bool = (_nearby != null and is_instance_valid(_nearby)) or _swing_t >= 0.0 or _since_swing < 1.5
 	body.combat = 1.0 if engaged and state != State.DEAD else 0.0
-	body.look_target = target.target_point() if target and is_instance_valid(target) and not target.is_dead() and target.global_position.distance_to(global_position) < 12.0 else null
+	body.look_target = _nearby.target_point() if _nearby and is_instance_valid(_nearby) else null
 	match state:
 		State.ROLL:
 			body.action = &"roll"

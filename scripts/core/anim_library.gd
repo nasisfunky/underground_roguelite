@@ -9,7 +9,7 @@ extends RefCounted
 ## Erster und letzter Key (t=0 und t=1) sind immer die aktuelle Grundhaltung und stehen nicht in der Datei.
 
 const DIR := "res://data/anims/"
-const CLIPS := ["swing_0", "swing_1", "heavy"]
+const CLIPS := ["swing_0", "swing_1", "heavy", "thrust"]
 
 static var _cache := {}
 
@@ -141,6 +141,19 @@ static func builtin(clip_name: String) -> Dictionary:
 				[0.44, [0.10, 0.16, -0.50], [0.1, 0.2, -1], [0, 1, 0.2], 0.0, -0.18, 0.07],
 				[0.58, [0.42, 0.34, -0.25], [0.75, 0.6, 0.0], [-0.3, 1, 0], -0.5, -0.1, 0.04],
 				[0.76, [0.34, 0.20, -0.35], [0.2, 0.7, -0.6], [0, 1, 0], -0.2, -0.05, 0.02],
+			]
+		"thrust":
+			# Stich: Klinge zurückziehen, gerade nach vorn stoßen, Schild bleibt vorn
+			d.label = "Thrust (right click)"
+			d.duration = 1.05
+			d.hit = 0.46
+			d.trail = [0.38, 0.52]
+			rows = [
+				[0.22, [0.30, 0.10, 0.05], [0.05, 0.12, -1], [0, 1, 0], -0.45, 0.05, 0.02],
+				[0.36, [0.30, 0.12, 0.08], [0.02, 0.1, -1], [0, 1, 0], -0.55, 0.1, 0.04],
+				[0.46, [0.12, 0.16, -0.54], [-0.04, 0.02, -1], [0, 1, 0], 0.15, -0.3, 0.12],
+				[0.62, [0.14, 0.15, -0.52], [-0.04, 0.03, -1], [0, 1, 0], 0.12, -0.26, 0.1],
+				[0.82, [0.26, 0.12, -0.36], [-0.12, 0.4, -0.9], [0, 1, 0], 0.0, -0.08, 0.03],
 			]
 		_:
 			d.label = "Heavy Strike"

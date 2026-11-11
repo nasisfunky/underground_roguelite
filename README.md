@@ -25,32 +25,27 @@ Alle Texte im Spiel sind Englisch, Code-Kommentare und Doku Deutsch.
 
 | Eingabe | Aktion |
 |---|---|
-| WASD | laufen |
-| Linke Maus halten | Kamera frei drehen |
-| Rechte Maus halten | Kamera drehen, Charakter schaut mit (A/D = seitwärts) |
-| Beide Maustasten | vorwärts laufen und lenken, WASD wird dazugerechnet |
+| WASD | laufen (relativ zur Kamera, der Charakter dreht sich in Laufrichtung) |
+| Maus | Kamera drehen (Cursor ist im Spiel versteckt) |
+| Linksklick | Hieb. Im Rhythmus nachklicken = Kombo Vorhand → Rückhand |
+| Rechtsklick | Alternativangriff der Waffe, beim Schwert ein Stich (mehr Reichweite und Schaden, schmal) |
 | Mausrad | Zoom |
 | Leertaste | springen (halten = höher, antippen = kleiner Hüpfer) |
 | Shift | rollen in Laufrichtung (kurz unverwundbar, kostet Ausdauer) |
-| Q halten | blocken (Ausdauer statt Leben). Q kurz vor dem Treffer = Parade |
-| Tab | nächstes Ziel |
-| Linksklick auf Gegner | Gegner anvisieren |
+| Q halten | blocken in Kamerarichtung (Ausdauer statt Leben). Q kurz vor dem Treffer = Parade |
 | 1 / 2 | Heavy Strike / Shield Bash |
-| F1 / F2 / F3 / Esc | Hilfe / Steuerungsmodus / Debug-Anzeige / Pause |
+| Alt halten | Cursor freigeben |
+| F1 / F3 / Esc | Hilfe / Debug-Anzeige / Pause |
 
-Der **Standardangriff läuft automatisch** (wie Auto-Attack in WoW), sobald das Ziel in
-Reichweite und vor dem Charakter ist. Ein Ziel wird automatisch nach Nähe gewählt.
-Fähigkeiten auf 1–9 ersetzen den Auto-Angriff für ihre Dauer.
-
-**F2** schaltet zwischen zwei Steuerungsmodi um:
-- *Hybrid* (Standard): WASD läuft relativ zur Kamera, der Charakter dreht sich in Laufrichtung.
-- *Klassisch*: wie WoW-Standard, A/D drehen den Charakter, die Kamera schwenkt hinterher.
+Es gibt **kein Anvisieren**: Angriffe gehen in Kamerarichtung und treffen alles im Bogen davor.
+Jeder Hieb kostet Ausdauer. Während eines Hiebs läuft der Charakter kaum weiter und
+verlagert sein Gewicht kurz vor dem Treffer nach vorn.
 
 ## Die drei Räume
 
-1. **Hall of Pillars** – Laufen, Springen, Rampe und Plattform-Parcours mit Lücke.
-2. **Training Yard** – drei Trainingspuppen für Auto-Angriff und Fähigkeiten.
-3. **Sealed Hall** (tiefer gelegen, mit versiegeltem Tor) – drei Hollow Shades, die zurückschlagen.
+1. **The Threshold** – Tor nach Vigil, Laufen, Springen, Rampe und Trümmer-Parcours.
+2. **Wardens' Ring** – drei Trainingspuppen für Angriffe und Fähigkeiten.
+3. **The Sunken Gate** (tiefer gelegen, mit versiegeltem Tor) – drei Hollow Shades, die zurückschlagen.
    Die Augen glühen beim Ausholen auf. Dann blocken, parieren oder durchrollen.
    Besiegte Gegner erscheinen nach einigen Sekunden neu.
 
@@ -63,8 +58,8 @@ Werte stehen als `@export` im Inspector und lassen sich live anpassen (`scripts/
 - **Coyote Time** 0,1 s, variable Sprunghöhe, stärkere Fall- als Steiggravitation.
 - **Rolle**: Unverwundbarkeit ab dem ersten Frame (0,32 s), Tempo vorne hoch und hinten weich,
   ab 0,36 s abbrechbar, rollt durch Gegner hindurch.
-- **Auto-Angriff als Oberkörper-Animation**: Laufen wird nie blockiert. Rollen oder Blocken
-  bricht den Schwung ab, und der nächste kommt dann schneller.
+- **Angriffe mit Eingabepuffer**: Ein Klick bis 0,5 s vor dem Kombofenster wird vorgemerkt.
+  Rollen bricht einen Hieb ab.
 - **Treffer-Feedback**: Hitstop (40–120 ms), Screenshake, Funken, Schadenszahlen, Aufblitzen.
 - **Kamera** mit Kollision und weichem Nachführen, folgt der interpolierten Position
   (Physik 60 Hz mit Interpolation, also flüssig bei 144 Hz).
@@ -98,12 +93,12 @@ tools/                    Entwicklerwerkzeuge (Spieltest, Screenshots)
 ```
 godot --headless --path . tools/smoke_test.tscn
 ```
-Der Test prüft Laufen, Sprunghöhe, Rolle, Ausdauer, Auto-Angriff, Tab-Zielwechsel,
+Der Test prüft Laufen, Sprunghöhe, Rolle, Ausdauer, Hiebe, Kombo, Stich,
 Fähigkeiten mit Abklingzeit, Gegnertreffer und Blocken.
 
 ## Animationswerkstatt (Animation Workshop)
 
-Die Kampfanimationen (Auto-Hiebe Vorhand/Rückhand, Heavy Strike) sind Keyframe-Daten in
+Die Kampfanimationen (Hiebe Vorhand/Rückhand, Stich, Heavy Strike) sind Keyframe-Daten in
 `data/anims/*.json`. Das Spiel lädt sie beim Start; bearbeitet werden sie in der Werkstatt:
 
 1. In Godot `tools/anim_workshop.tscn` öffnen und mit **F6** (aktuelle Szene starten) laufen lassen.

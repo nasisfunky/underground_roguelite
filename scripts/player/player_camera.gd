@@ -1,25 +1,23 @@
 class_name PlayerCamera
 extends Node3D
-## WoW-artige Orbit-Kamera mit Kollision, Zoom, weichem Nachführen und Screenshake.
+## Third-Person-Orbit-Kamera (Maus dreht immer) mit Kollision, Zoom, weichem Nachführen und Screenshake.
 ## Läuft in _process (Bildrate) und folgt der interpolierten Spielerposition,
 ## damit sie auch bei 144 Hz butterweich bleibt.
 
 @export var sensitivity := 0.0032  # Radiant pro Pixel
 @export var min_pitch := deg_to_rad(-72.0)
 @export var max_pitch := deg_to_rad(38.0)
-@export var min_zoom := 2.2
-@export var max_zoom := 13.0
+@export var min_zoom := 2.0
+@export var max_zoom := 9.0
 @export var zoom_step := 1.1
-@export var pivot_height := 1.4
+@export var pivot_height := 1.3
 @export var follow_sharpness_xz := 22.0
 @export var follow_sharpness_y := 9.0
-## Nur im klassischen Modus: Kamera schwenkt beim Laufen langsam hinter den Charakter.
-@export var auto_follow_speed := 2.2
 
 var yaw := 0.0
 var pitch := deg_to_rad(-18.0)
-var target_distance := 6.5
-var distance := 6.5
+var target_distance := 4.2
+var distance := 4.2
 var trauma := 0.0  # 0..1, Screenshake
 
 var target: Node3D
@@ -80,12 +78,6 @@ func _process(delta: float) -> void:
 		var z := input.consume_zoom()
 		if z != 0.0:
 			target_distance = clampf(target_distance * pow(zoom_step, z), min_zoom, max_zoom)
-
-	# Klassischer WoW-Modus: Kamera rutscht beim Laufen hinter den Charakter.
-	if Game.classic_turning and input and not (input.lmb_held or input.rmb_held):
-		if target.has_method("get_horizontal_speed") and target.get_horizontal_speed() > 0.5:
-			var behind: float = target.get_facing_yaw()
-			yaw = lerp_angle(yaw, behind, 1.0 - exp(-auto_follow_speed * delta))
 
 	# Weiches Folgen. Y langsamer, damit Sprünge die Kamera nicht zappeln lassen.
 	var tpos: Vector3 = target.get_global_transform_interpolated().origin + Vector3.UP * pivot_height

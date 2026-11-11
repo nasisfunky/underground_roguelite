@@ -4,15 +4,12 @@ extends Node
 ## Der Spieler-Controller liest nur diesen Zustand und kennt keine Geräte.
 ## Für Koop kann später ein NetworkInput mit derselben Schnittstelle eingesetzt werden.
 ##
-## WoW-Maussteuerung:
-##   Linke Maustaste halten  -> Kamera dreht frei um den Charakter
-##   Rechte Maustaste halten -> Kamera dreht, Charakter schaut mit (Mouselook)
-##   Beide halten            -> zusätzlich vorwärts laufen
-##   Kurzer Linksklick       -> Gegner unter dem Mauszeiger anvisieren
-## Normale Angriffe laufen automatisch (Auto-Angriff), Fähigkeiten liegen auf 1-9.
-
-const TAP_MAX_TIME := 0.22
-const TAP_MAX_MOVE := 10.0  # Pixel
+## Action-Steuerung:
+##   Maus bewegen     -> Kamera dreht frei um den Charakter (Cursor im Spiel versteckt)
+##   Linksklick       -> normaler Angriff (Kombo)
+##   Rechtsklick      -> Alternativangriff der Waffe (Schwert: Stich)
+##   Alt halten       -> Cursor kurz freigeben
+## Fähigkeiten liegen auf 1-9.
 
 # Zustand, den der Controller pro Physik-Tick liest
 # (live abgefragt, damit der erste Physik-Tick nach dem Tastendruck schon stimmt)
@@ -29,8 +26,6 @@ var jump_held: bool:
 var block_held: bool:
 	get:
 		return not Game.paused and Input.is_action_pressed("block")
-var lmb_held := false
-var rmb_held := false
 var look_delta := Vector2.ZERO  # wird von der Kamera verbraucht
 var zoom_delta := 0.0
 
@@ -38,32 +33,48 @@ var zoom_delta := 0.0
 var _jump_pressed := false
 var _roll_pressed := false
 var _target_next := false
-var _click_pos: Variant = null  # Bildschirmposition eines kurzen Linksklicks
+var _attack: int = 0  # 1 = normal (LMB), 2 = alternativ (RMB)
 var _ability: int = 0  # 1..9, 0 = keine
+var _alt_free := false
 
-var _lmb_down_time := 0.0
-var _lmb_motion := 0.0
-var _restore_cursor := Vector2.ZERO
+
+func _ready() -> void:
+	capture_mouse()
+
+
+func _process(_delta: float) -> void:
+	# Alt halten gibt den Cursor frei (später für Inventar/Menüs)
+	var alt := Input.is_key_pressed(KEY_ALT)
+	if alt != _alt_free:
+		_alt_free = alt
+		if alt:
+			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		else:
+			capture_mouse()
+
+
+func capture_mouse() -> void:
+	if not Game.paused and not _alt_free:
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+
+
+func release_mouse() -> void:
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 
 func _input(event: InputEvent) -> void:
 	if Game.paused:
 		return
+	var captured := Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
 	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
 		match mb.button_index:
-			MOUSE_BUTTON_LEFT:
+			MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT:
 				if mb.pressed:
-					_lmb_down_time = Time.get_ticks_msec() / 1000.0
-					_lmb_motion = 0.0
-					_set_button(true, rmb_held)
-				else:
-					var held := Time.get_ticks_msec() / 1000.0 - _lmb_down_time
-					if lmb_held and held <= TAP_MAX_TIME and _lmb_motion <= TAP_MAX_MOVE:
-						_click_pos = _restore_cursor if not rmb_held else null
-					_set_button(false, rmb_held)
-			MOUSE_BUTTON_RIGHT:
-				_set_button(lmb_held, mb.pressed)
+					if captured:
+						_attack = 1 if mb.button_index == MOUSE_BUTTON_LEFT else 2
+					elif not _alt_free:
+						capture_mouse()  # erster Klick nach Fokusverlust holt nur die Maus zurück
 			MOUSE_BUTTON_WHEEL_UP:
 				if mb.pressed:
 					zoom_delta -= 1.0
@@ -71,11 +82,8 @@ func _input(event: InputEvent) -> void:
 				if mb.pressed:
 					zoom_delta += 1.0
 	elif event is InputEventMouseMotion:
-		if lmb_held or rmb_held:
-			var rel: Vector2 = (event as InputEventMouseMotion).screen_relative
-			look_delta += rel
-			if lmb_held:
-				_lmb_motion += rel.length()
+		if captured:
+			look_delta += (event as InputEventMouseMotion).screen_relative
 	if event.is_echo():
 		return
 	if event.is_action_pressed("jump"):
@@ -89,22 +97,10 @@ func _input(event: InputEvent) -> void:
 		_roll_pressed = true
 
 
-func _set_button(lmb: bool, rmb: bool) -> void:
-	var was_any := lmb_held or rmb_held
-	lmb_held = lmb
-	rmb_held = rmb
-	var is_any := lmb_held or rmb_held
-	if is_any and not was_any:
-		# Wie in WoW: Cursor verschwindet und taucht beim Loslassen an derselben Stelle wieder auf.
-		_restore_cursor = get_viewport().get_mouse_position()
-		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-	elif was_any and not is_any:
-		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-		Input.warp_mouse(_restore_cursor)
-
-
-func release_mouse() -> void:
-	_set_button(false, false)
+func consume_attack() -> int:
+	var v := _attack
+	_attack = 0
+	return v
 
 
 func consume_jump() -> bool:
@@ -122,12 +118,6 @@ func consume_ability() -> int:
 func consume_target_next() -> bool:
 	var v := _target_next
 	_target_next = false
-	return v
-
-
-func consume_click() -> Variant:
-	var v: Variant = _click_pos
-	_click_pos = null
 	return v
 
 

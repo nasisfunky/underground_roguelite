@@ -74,12 +74,11 @@ func setup(p: Player) -> void:
 	_help.position = Vector2(18, 16)
 	_help.text = """WASD  move        Space  jump (hold = higher)
 Shift  roll (in move direction)        Hold Q  block (early = parry)
-Hold left mouse  orbit camera        Hold right mouse  steer character
-Both mouse buttons  run forward        Mouse wheel  zoom
-Auto attack swings on its own while a target is in range
-Tab  next target        Left click enemy  select target
+Mouse  camera        Mouse wheel  zoom        Hold Alt  free cursor
+Left click  attack (click again in rhythm = combo)
+Right click  thrust (sword alt attack, more reach)
 1  Heavy Strike        2  Shield Bash
-F1 Help   F2 Control mode   F3 Debug   Esc Pause"""
+F1 Help   F3 Debug   Esc Pause"""
 	root.add_child(_help)
 	_mode = _label(13, Color(1.0, 0.85, 0.5, 0.9))
 	_mode.position = Vector2(18, 192)
@@ -110,7 +109,6 @@ F1 Help   F2 Control mode   F3 Debug   Esc Pause"""
 
 	p.health_changed.connect(_on_health)
 	p.stamina_changed.connect(func(c, m): _st.set_value(c / m))
-	p.target_changed.connect(_on_target_changed)
 	p.ability_used.connect(func(i): _slots[i].flash = 1.0)
 	Game.room_entered.connect(show_room)
 	_hp.text = "%d / %d" % [p.health, p.max_health]
@@ -195,8 +193,11 @@ func _toggle_pause() -> void:
 	Game.paused = not Game.paused
 	get_tree().paused = Game.paused
 	_pause.visible = Game.paused
-	if Game.paused and player.input:
-		player.input.release_mouse()
+	if player.input:
+		if Game.paused:
+			player.input.release_mouse()
+		else:
+			player.input.capture_mouse()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -211,7 +212,7 @@ func _unhandled_input(event: InputEvent) -> void:
 func _process(_delta: float) -> void:
 	if not player:
 		return
-	_mode.text = "Controls: %s (F2)" % ("Classic – A/D turn" if Game.classic_turning else "Hybrid – WASD camera-relative")
+	_mode.text = ""
 	for i in 9:
 		var a: Ability = player.abilities[i]
 		var s := _slots[i]

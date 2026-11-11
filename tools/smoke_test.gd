@@ -1,5 +1,5 @@
 extends Node
-## Automatischer Spieltest (headless): prüft Laufen, Springen, Rollen, Auto-Angriff,
+## Automatischer Spieltest (headless): prüft Laufen, Springen, Rollen, Angriffe per Klick,
 ## Fähigkeiten, Blocken und Gegner-Treffer. Aufruf: godot --headless --path . tools/smoke_test.tscn
 
 var level: Node
@@ -58,7 +58,7 @@ func _ready() -> void:
 	await _phys(90)
 	_check("Ausdauer lädt nach", p.stamina > 95.0, "%.0f" % p.stamina)
 
-	# --- Auto-Angriff an Trainingspuppe ---
+	# --- Angriffe per Klick an Trainingspuppe ---
 	_teleport(Vector3(0, 0.1, -33.3), 0.0)
 	await _phys(20)
 	var dummy: Enemy = null
@@ -67,16 +67,30 @@ func _ready() -> void:
 			dummy = e
 	var hits := [0]
 	dummy.health_changed.connect(func(_c, _m): hits[0] += 1)
-	_check("Ziel automatisch gewählt", p.target != null, str(p.target))
-	p.set_target(dummy)
-	await _phys(240)
-	_check("Auto-Angriff trifft (~4 Treffer in 4 s)", hits[0] >= 3 and hits[0] <= 6, "%d Treffer" % hits[0])
-
-	# --- Tab-Zielwechsel ---
-	var before := p.target
-	p.cycle_target()
-	_check("Tab wechselt Ziel", p.target != before and p.target != null, str(p.target))
-	p.set_target(dummy)
+	await _phys(20)
+	_check("Ohne Klick kein Angriff", hits[0] == 0, "%d Treffer" % hits[0])
+	var st_before := p.stamina
+	p.input._attack = 1
+	await _phys(3)
+	_check("Linksklick startet Hieb", p._swing_t >= 0.0 and p._swing_index == 0, "Clip %d" % p._swing_index)
+	_check("Hieb kostet Ausdauer", p.stamina < st_before, "%.0f -> %.0f" % [st_before, p.stamina])
+	await _phys(30)
+	p.input._attack = 1  # früh geklickt -> wird vorgemerkt und schließt als Rückhand an
+	var combo_seen := false
+	for i in 90:
+		await get_tree().physics_frame
+		if p._swing_index == 1 and p._swing_t >= 0.0:
+			combo_seen = true
+	_check("Kombo: zweiter Klick wird zur Rückhand", combo_seen, "")
+	await _phys(60)
+	_check("Hiebe treffen die Puppe", hits[0] >= 2, "%d Treffer" % hits[0])
+	var hp_before: float = dummy.health
+	p.input._attack = 2
+	await _phys(3)
+	_check("Rechtsklick startet Stich", p._swing_index == 3, "Clip %d" % p._swing_index)
+	await _phys(80)
+	_check("Stich trifft stärker", hp_before - dummy.health > p.swing_damage * 1.2, "%.1f Schaden" % (hp_before - dummy.health))
+	await _phys(40)
 
 	# --- Fähigkeit 1 ---
 	hits[0] = 0
@@ -104,15 +118,17 @@ func _ready() -> void:
 	var hp0 := p.health
 	await _phys(240)
 	_check("Hohlwandler trifft ungeschützten Spieler", p.health < hp0, "%.0f -> %.0f" % [hp0, p.health])
-	_check("Spieler schlägt automatisch zurück", husk.health < husk.max_health or husk.is_dead(), "%.0f" % husk.health)
+	_check("Spieler schlägt nicht von selbst", husk.health >= husk.max_health, "%.0f" % husk.health)
 
 	# --- Blocken ---
 	await _phys(60)
-	p.set_target(husk)
 	hp0 = p.health
 	var blocked := [0]
 	Input.action_press("block")
 	for i in 300:
+		# Spieler schaut mit der Kamera zum Gegner (Deckung zeigt in Kamerarichtung)
+		var to := husk.global_position - p.global_position
+		p.cam.yaw = atan2(-to.x, -to.z)
 		await get_tree().physics_frame
 		if p.stamina < 99.0:
 			blocked[0] = 1
