@@ -3,6 +3,7 @@
 Low-Poly Action-Roguelite in Godot 4.7. Dieser Stand ist ein Testlevel mit drei Räumen,
 um Steuerung, Kamera und Kampfgefühl auszuprobieren. Alles Grafische ist prozedural aus
 kantigen Grundformen gebaut (keine externen Assets).
+Alle Texte im Spiel sind Englisch, Code-Kommentare und Doku Deutsch.
 
 ## Starten
 
@@ -23,7 +24,7 @@ kantigen Grundformen gebaut (keine externen Assets).
 | Q halten | blocken (Ausdauer statt Leben). Q kurz vor dem Treffer = Parade |
 | Tab | nächstes Ziel |
 | Linksklick auf Gegner | Gegner anvisieren |
-| 1 / 2 | Schwerer Hieb / Schildstoß |
+| 1 / 2 | Heavy Strike / Shield Bash |
 | F1 / F2 / F3 / Esc | Hilfe / Steuerungsmodus / Debug-Anzeige / Pause |
 
 Der **Standardangriff läuft automatisch** (wie Auto-Attack in WoW), sobald das Ziel in
@@ -36,9 +37,9 @@ Fähigkeiten auf 1–9 ersetzen den Auto-Angriff für ihre Dauer.
 
 ## Die drei Räume
 
-1. **Säulenhalle** – Laufen, Springen, Rampe und Plattform-Parcours mit Lücke.
-2. **Übungshof** – drei Trainingspuppen für Auto-Angriff und Fähigkeiten.
-3. **Pyramidenkammer** (tiefer gelegen) – drei Hohlwandler, die zurückschlagen.
+1. **Hall of Pillars** – Laufen, Springen, Rampe und Plattform-Parcours mit Lücke.
+2. **Training Yard** – drei Trainingspuppen für Auto-Angriff und Fähigkeiten.
+3. **Pyramid Chamber** (tiefer gelegen) – drei Hollow Shades, die zurückschlagen.
    Die Augen glühen beim Ausholen auf. Dann blocken, parieren oder durchrollen.
    Besiegte Gegner erscheinen nach einigen Sekunden neu.
 
@@ -64,9 +65,9 @@ scripts/
   autoload/game.gd        Eingabebelegung, Spielerliste, Licht-Abfrage
   core/low_poly.gd        Flat-Shading-Helfer, Palette, Grundformen
   player/                 Controller, Eingabe, WoW-Kamera, prozedurale Spielfigur
-  abilities/              Fähigkeiten-Basis + Schwerer Hieb, Schildstoß
+  abilities/              Fähigkeiten-Basis + Heavy Strike, Shield Bash
   combat/                 DamageInfo, Hitbox, Hurtbox
-  enemies/                Enemy-Basis, Trainingspuppe, Hohlwandler
+  enemies/                Enemy-Basis, Training Dummy, Hollow Shade
   fx/                     Funken, Zahlen, Staub, Schwungspur
   ui/                     HUD, Aktionsleiste, Zielmarker
   level/test_level.gd     baut die drei Räume

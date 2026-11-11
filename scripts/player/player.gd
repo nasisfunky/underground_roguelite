@@ -622,7 +622,7 @@ func receive_hit(info: DamageInfo) -> int:
 	if state == State.DEAD:
 		return DamageInfo.Result.IGNORED
 	if is_invulnerable():
-		FX.number(self, global_position + Vector3.UP * 2.0, "Ausgewichen", Color(0.6, 0.9, 1.0))
+		FX.number(self, global_position + Vector3.UP * 2.0, "Dodged", Color(0.6, 0.9, 1.0))
 		return DamageInfo.Result.DODGED
 	var from_dir := Vector3.ZERO
 	if info.source:
@@ -638,7 +638,7 @@ func receive_hit(info: DamageInfo) -> int:
 				cam.add_trauma(0.35)
 			FX.sparks(self, global_position + Vector3.UP * 1.3 + from_dir * 0.5, Color(1.0, 0.95, 0.6), 14, 1.5)
 			FX.ring(self, global_position, LowPoly.CYAN, 2.5, 0.35)
-			FX.number(self, global_position + Vector3.UP * 2.2, "Parade!", Color(1.0, 0.9, 0.4), true)
+			FX.number(self, global_position + Vector3.UP * 2.2, "Parry!", Color(1.0, 0.9, 0.4), true)
 			if info.source and info.source.has_method("on_parried"):
 				info.source.on_parried(self)
 			return DamageInfo.Result.PARRIED
@@ -655,7 +655,7 @@ func receive_hit(info: DamageInfo) -> int:
 		# Deckung gebrochen
 		_spend_stamina(stamina)
 		info.amount *= 0.5
-		FX.number(self, global_position + Vector3.UP * 2.2, "Deckung gebrochen", Color(1.0, 0.5, 0.3))
+		FX.number(self, global_position + Vector3.UP * 2.2, "Guard Broken", Color(1.0, 0.5, 0.3))
 		_take_damage(info, from_dir, 0.8)
 		return DamageInfo.Result.GUARD_BREAK
 	_take_damage(info, from_dir, 0.38)

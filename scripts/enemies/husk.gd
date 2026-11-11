@@ -30,7 +30,7 @@ var _player: Node3D
 
 
 func _ready() -> void:
-	display_name = "Hohlwandler"
+	display_name = "Hollow Shade"
 	max_health = 70.0
 	max_poise = 22.0
 	target_height = 2.25
@@ -216,7 +216,7 @@ func _on_hit(_info: DamageInfo, _dir: Vector3) -> void:
 
 func on_parried(_by: Node3D) -> void:
 	_stagger(1.4)
-	FX.number(self, target_point(), "Taumelt", Color(0.6, 0.95, 1.0))
+	FX.number(self, target_point(), "Staggered", Color(0.6, 0.95, 1.0))
 
 
 func _on_death() -> void:

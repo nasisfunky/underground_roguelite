@@ -7,8 +7,8 @@ var _hit_done := false
 
 
 func _init() -> void:
-	display_name = "Schwerer Hieb"
-	short_name = "Hieb"
+	display_name = "Heavy Strike"
+	short_name = "Strike"
 	cooldown = 5.0
 	stamina_cost = 20.0
 	duration = 0.85

@@ -7,8 +7,8 @@ var _hit_done := false
 
 
 func _init() -> void:
-	display_name = "Schildstoß"
-	short_name = "Stoß"
+	display_name = "Shield Bash"
+	short_name = "Bash"
 	cooldown = 7.0
 	stamina_cost = 15.0
 	duration = 0.5

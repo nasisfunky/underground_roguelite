@@ -3,7 +3,7 @@ extends RefCounted
 ## Basis für Fähigkeiten auf der Aktionsleiste (Tasten 1-9).
 ## Eine Fähigkeit übernimmt für ihre Dauer den Charakter und ersetzt den Auto-Angriff.
 
-var display_name := "Fähigkeit"
+var display_name := "Ability"
 var short_name := "?"  ## Kürzel für die Aktionsleiste
 var cooldown := 5.0
 var cooldown_left := 0.0

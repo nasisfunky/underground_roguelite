@@ -11,7 +11,7 @@ var _flash_mat: StandardMaterial3D
 
 
 func _ready() -> void:
-	display_name = "Trainingspuppe"
+	display_name = "Training Dummy"
 	max_health = 500.0
 	target_height = 2.2
 	radius = 0.4

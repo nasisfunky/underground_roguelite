@@ -84,7 +84,7 @@ func _build_environment() -> void:
 
 func _build_room_hall() -> void:
 	var c := Vector3(0, 0, 0)
-	_room_shell(c, Vector2(26, 26), [Vector2(0, 6)], [], "Säulenhalle")
+	_room_shell(c, Vector2(26, 26), [Vector2(0, 6)], [], "Hall of Pillars")
 	# Monumentale Säulen
 	for z in [6.0, -1.0, -8.0]:
 		for x in [-6.5, 6.5]:
@@ -114,7 +114,7 @@ func _build_room_hall() -> void:
 
 func _build_room_training() -> void:
 	var c := Vector3(0, 0, -34)
-	_room_shell(c, Vector2(26, 24), [Vector2(0, 6)], [Vector2(0, 6)], "Übungshof")
+	_room_shell(c, Vector2(26, 24), [Vector2(0, 6)], [Vector2(0, 6)], "Training Yard")
 	for x in [-4.5, 0.0, 4.5]:
 		var d := TrainingDummy.new()
 		d.position = Vector3(x, 0.05, -34.0 - (1.5 if x == 0.0 else 0.0))
@@ -145,7 +145,7 @@ func _build_ramp_corridor() -> void:
 func _build_room_pyramid() -> void:
 	var y := -3.0
 	var c := Vector3(0, y, -76)
-	_room_shell(c, Vector2(34, 34), [], [Vector2(0, 6)], "Pyramidenkammer")
+	_room_shell(c, Vector2(34, 34), [], [Vector2(0, 6)], "Pyramid Chamber")
 	# Stufenpyramide (warmer Ocker-Kontrast)
 	var pc := Vector3(0, y, -88)
 	var tiers := [[14.0, 1.6], [11.0, 1.5], [8.0, 1.4], [5.2, 1.3], [2.6, 1.2]]

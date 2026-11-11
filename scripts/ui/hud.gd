@@ -72,17 +72,17 @@ func setup(p: Player) -> void:
 	# --- Hilfe oben links ---
 	_help = _label(13, Color(0.8, 0.92, 0.92, 0.9))
 	_help.position = Vector2(18, 16)
-	_help.text = """WASD  laufen        Leertaste  springen (halten = höher)
-Shift  rollen (in Laufrichtung)        Q halten  blocken (früh = Parade)
-Linke Maus halten  Kamera drehen        Rechte Maus halten  Charakter lenken
-Beide Maustasten  vorwärts laufen        Mausrad  Zoom
-Angriff läuft automatisch, sobald ein Ziel in Reichweite ist
-Tab  nächstes Ziel        Linksklick auf Gegner  anvisieren
-1  Schwerer Hieb        2  Schildstoß
-F1 Hilfe   F2 Steuerungsmodus   F3 Debug   Esc Pause"""
+	_help.text = """WASD  move        Space  jump (hold = higher)
+Shift  roll (in move direction)        Hold Q  block (early = parry)
+Hold left mouse  orbit camera        Hold right mouse  steer character
+Both mouse buttons  run forward        Mouse wheel  zoom
+Auto attack swings on its own while a target is in range
+Tab  next target        Left click enemy  select target
+1  Heavy Strike        2  Shield Bash
+F1 Help   F2 Control mode   F3 Debug   Esc Pause"""
 	root.add_child(_help)
 	_mode = _label(13, Color(1.0, 0.85, 0.5, 0.9))
-	_mode.position = Vector2(18, 150)
+	_mode.position = Vector2(18, 192)
 	root.add_child(_mode)
 
 	# --- Raumtitel ---
@@ -156,12 +156,12 @@ func _build_pause(root: Control) -> void:
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(title)
 	var resume := Button.new()
-	resume.text = "Weiter"
+	resume.text = "Resume"
 	resume.custom_minimum_size = Vector2(220, 40)
 	resume.pressed.connect(_toggle_pause)
 	box.add_child(resume)
 	var quit := Button.new()
-	quit.text = "Beenden"
+	quit.text = "Quit"
 	quit.pressed.connect(func(): get_tree().quit())
 	box.add_child(quit)
 
@@ -211,7 +211,7 @@ func _unhandled_input(event: InputEvent) -> void:
 func _process(_delta: float) -> void:
 	if not player:
 		return
-	_mode.text = "Steuerung: %s (F2)" % ("Klassisch – A/D drehen" if Game.classic_turning else "Hybrid – WASD kamera-relativ")
+	_mode.text = "Controls: %s (F2)" % ("Classic – A/D turn" if Game.classic_turning else "Hybrid – WASD camera-relative")
 	for i in 9:
 		var a: Ability = player.abilities[i]
 		var s := _slots[i]
@@ -221,4 +221,4 @@ func _process(_delta: float) -> void:
 			s.cooldown_left = a.cooldown_left
 			s.cooldown_frac = a.cooldown_left / a.cooldown if a.cooldown > 0.0 else 0.0
 	if _debug.visible:
-		_debug.text = "FPS %d\nZustand %s\nLicht %.2f\nTempo %.1f m/s" % [Engine.get_frames_per_second(), Player.State.keys()[player.state], Game.light_level_at(player.global_position + Vector3.UP), player.get_horizontal_speed()]
+		_debug.text = "FPS %d\nState %s\nLight %.2f\nSpeed %.1f m/s" % [Engine.get_frames_per_second(), Player.State.keys()[player.state], Game.light_level_at(player.global_position + Vector3.UP), player.get_horizontal_speed()]

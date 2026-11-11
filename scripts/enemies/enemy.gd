@@ -5,7 +5,7 @@ extends CharacterBody3D
 signal died(enemy: Enemy)
 signal health_changed(current: float, maximum: float)
 
-@export var display_name := "Gegner"
+@export var display_name := "Enemy"
 @export var max_health := 60.0
 @export var max_poise := 20.0
 @export var target_height := 2.1  ## Höhe für Zielmarker
