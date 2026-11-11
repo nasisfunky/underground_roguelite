@@ -31,6 +31,7 @@ var action: StringName = &""  ## "", swing, roll, block, stagger, dead
 var action_t := 0.0  ## normierte Zeit der Aktion 0..1
 var swing_index := 0  ## welcher Schwung (0,1 = Auto-Angriff, 2 = schwerer Hieb)
 var block_amount := 0.0  ## 0..1, Schild-Anheben
+var look_target: Variant = null  ## Weltposition, zu der der Kopf schaut (oder null)
 
 # --- Interne Knoten ---
 var rig: Node3D
@@ -72,11 +73,29 @@ var _meshes: Array[MeshInstance3D] = []
 var _flash_t := 0.0
 var _flash_mat: StandardMaterial3D
 # geglättete Posenwerte
-var _sw_grip := Vector3(0.27, -0.32, -0.18)
-var _sw_dir := Vector3(0.15, -0.35, -1).normalized()
-var _sw_flat := Vector3.RIGHT
-var _twist := 0.0
-var _lean := 0.0
+var _springs_ready := false
+var _sp_grip: Spring
+var _sp_dir: Spring
+var _sp_flat: Spring
+var _sp_shield: Spring
+var _sp_shield_dir: Spring
+var _sp_lean: Spring
+var _sp_bank: Spring
+var _sp_twist: Spring
+var _sp_drop: Spring
+var _sp_lower: Spring
+var _sp_head: Spring
+var _sp_moving: Spring
+var _sp_air: Spring
+var _sp_rig_x: Spring
+var _sp_rig_y: Spring
+var _sp_scarf: Spring
+var _sp_tab_f: Spring
+var _sp_tab_b: Spring
+var _prev_speed := 0.0
+var _prev_yaw := 0.0
+var _prev_vy := 0.0
+var _was_floor := true
 var _hips_drop := 0.0
 var _lower_yaw := 0.0
 var _trail: SwordTrail
@@ -218,9 +237,36 @@ func sword_points() -> Array[Vector3]:
 # Animation
 # ------------------------------------------------------------------
 
+func _init_springs() -> void:
+	# Hand/Waffe: reagiert flott, schwingt minimal nach
+	_sp_grip = Spring.new(4.0, 0.8, 1.1, _scale_pose(Vector3(0.27, -0.30, -0.16)))
+	_sp_dir = Spring.new(4.0, 0.8, 1.1, Vector3(0.12, -0.32, -1.0).normalized())
+	_sp_flat = Spring.new(4.0, 0.9, 1.0, Vector3.RIGHT)
+	_sp_shield = Spring.new(3.5, 0.75, 1.0, _scale_pose(Vector3(-0.28, -0.18, -0.12)))
+	_sp_shield_dir = Spring.new(3.5, 0.8, 1.0, Vector3(-0.5, 0.0, -0.85).normalized())
+	# Rumpf: etwas träger, leichtes Nachwippen
+	_sp_lean = Spring.new(2.6, 0.55, 0.8, 0.0)
+	_sp_bank = Spring.new(2.2, 0.6, 1.0, 0.0)
+	_sp_twist = Spring.new(3.5, 0.7, 1.2, 0.0)
+	_sp_drop = Spring.new(3.0, 0.45, 1.0, 0.0)
+	_sp_lower = Spring.new(3.0, 0.9, 1.0, 0.0)
+	_sp_head = Spring.new(2.5, 0.8, 1.0, Vector2.ZERO)
+	_sp_moving = Spring.new(2.5, 1.0, 1.0, 0.0)
+	_sp_air = Spring.new(4.0, 0.9, 1.0, 0.0)
+	_sp_rig_x = Spring.new(3.0, 0.8, 1.0, 0.0)
+	_sp_rig_y = Spring.new(4.0, 0.6, 1.0, RIG_Y)
+	# Stoff: weich und schwingend
+	_sp_scarf = Spring.new(1.6, 0.3, 1.0, 0.3)
+	_sp_tab_f = Spring.new(2.4, 0.35, 1.0, 0.0)
+	_sp_tab_b = Spring.new(2.0, 0.3, 1.0, 0.0)
+	_springs_ready = true
+
+
 func tick(delta: float) -> void:
 	if delta <= 0.0:
 		return
+	if not _springs_ready:
+		_init_springs()
 	_time += delta
 	if _flash_t > 0.0:
 		_flash_t -= delta
@@ -228,70 +274,83 @@ func tick(delta: float) -> void:
 			for m in _meshes:
 				m.material_overlay = null
 
-	var s := clampf(speed / run_speed_ref, 0.0, 1.3)
-	var moving := s > 0.05 and on_floor
+	# --- Bewegungsdaten ableiten: Beschleunigung, Drehrate, Landung ---
+	var accel := (speed - _prev_speed) / delta
+	_prev_speed = speed
+	var yaw := global_rotation.y
+	var yaw_rate := wrapf(yaw - _prev_yaw, -PI, PI) / delta
+	_prev_yaw = yaw
+	if on_floor and not _was_floor and _prev_vy < -3.0:
+		# Landung: Hüfte federt ein
+		_sp_drop.kick(clampf(-_prev_vy * 0.06, 0.0, 0.9))
+		_sp_lean.kick(-0.8)
+	_was_floor = on_floor
+	_prev_vy = vertical_velocity
 
-	# --- Schrittzyklus ---
+	var s := clampf(speed / run_speed_ref, 0.0, 1.3)
+	# stufenloser Übergang Stand <-> Laufen <-> Luft
+	var w_move: float = clampf(_sp_moving.update(delta, 1.0 if (s > 0.04 and on_floor) else 0.0), 0.0, 1.2)
+	var w_air: float = clampf(_sp_air.update(delta, 0.0 if on_floor else 1.0), 0.0, 1.0)
+
+	# --- Schrittzyklus: Schrittlänge wächst mit Tempo, Beinausschlag passt zur Schrittlänge (kein Gleiten) ---
 	var backwards := local_move.y < -0.1
 	var dir_sign := -1.0 if backwards else 1.0
-	_phase += delta * speed / 1.35 * TAU * dir_sign
-	# Unterkörper dreht sich in Laufrichtung (Seitwärtslaufen)
+	var stride := lerpf(0.8, 1.45, clampf(s, 0.0, 1.0))  # Meter pro Doppelschritt
+	_phase += delta * speed / stride * TAU * dir_sign
+	var leg_len := THIGH + SHIN
+	var amp := asin(clampf(stride * 0.25 / leg_len, 0.0, 0.9)) * 1.15 * w_move
 	var target_lower := 0.0
-	if moving and local_move.length() > 0.1:
+	if s > 0.05 and on_floor and local_move.length() > 0.1:
 		var lm := local_move * dir_sign
-		target_lower = clampf(atan2(-lm.x, lm.y), -1.1, 1.1)
-	_lower_yaw = lerp_angle(_lower_yaw, target_lower, 1.0 - exp(-12.0 * delta))
+		target_lower = clampf(atan2(-lm.x, lm.y), -1.0, 1.0)
+	var lower_yaw: float = _sp_lower.update(delta, target_lower)
 
-	var hl := Vector3.ZERO
-	var hr := Vector3.ZERO
-	var kl := 0.0
-	var kr := 0.0
-	var hips_y := 0.0
-	var lean := 0.0
+	# Laufpose
+	var run_hl := sin(_phase) * amp
+	var run_hr := sin(_phase + PI) * amp
+	var lift := minf(s, 1.0) * w_move
+	var run_kl := -(0.1 + 1.3 * maxf(0.0, cos(_phase)) * lift)
+	var run_kr := -(0.1 + 1.3 * maxf(0.0, cos(_phase + PI)) * lift)
+	var bob := (-0.035 * s + 0.04 * s * absf(cos(_phase))) * w_move
+	# Stand-Pose (Kampfhaltung, leichtes Atmen)
+	var breathe := sin(_time * 2.0)
+	var idle_hl := 0.16
+	var idle_hr := -0.2
+	var idle_kl := -0.28
+	var idle_kr := -0.16
+	var wm := clampf(w_move, 0.0, 1.0)
+	var hl := Vector3(lerpf(idle_hl, run_hl, wm), 0.0, lerpf(-0.05, 0.0, wm))
+	var hr := Vector3(lerpf(idle_hr, run_hr, wm), 0.0, lerpf(0.05, 0.0, wm))
+	var kl := lerpf(idle_kl, run_kl, wm)
+	var kr := lerpf(idle_kr, run_kr, wm)
+	var hips_y := lerpf(-0.03 + breathe * 0.006, bob, wm)
+	# Luft-Pose überblenden
+	var rising := clampf(vertical_velocity / 6.0, -1.0, 1.0)
+	hl.x = lerpf(hl.x, 0.6 + 0.3 * rising, w_air)
+	hr.x = lerpf(hr.x, -0.25 + 0.15 * rising, w_air)
+	kl = lerpf(kl, -1.15 - 0.3 * rising, w_air)
+	kr = lerpf(kr, -0.5, w_air)
+
+	# Rumpf: vorlehnen mit Tempo und beim Beschleunigen, in Kurven neigen
+	var lean := -0.06 - 0.16 * minf(s, 1.0) * wm - clampf(accel * 0.012, -0.25, 0.25) - 0.08 * w_air
+	var bank := clampf(-yaw_rate * speed * 0.012, -0.3, 0.3)
 	var twist := 0.0
-	var rig_rot := Vector3.ZERO
-	var rig_y := RIG_Y
 	var hips_drop := 0.0
+	var rig_x := 0.0
+	var rig_y := RIG_Y
+	var rig_direct := false
 
-	if on_floor:
-		var amp := 0.85 * minf(s, 1.0)
-		hl.x = sin(_phase) * amp
-		hr.x = sin(_phase + PI) * amp
-		kl = -(0.12 + 1.25 * maxf(0.0, cos(_phase)) * minf(s, 1.0))
-		kr = -(0.12 + 1.25 * maxf(0.0, cos(_phase + PI)) * minf(s, 1.0))
-		hips_y = -0.05 * s + 0.045 * s * absf(cos(_phase))
-		lean = -0.2 * minf(s, 1.0)
-		if not moving:
-			# Idle: leichtes Atmen, Kampfhaltung
-			hl = Vector3(0.18, 0, -0.06)
-			hr = Vector3(-0.22, 0, 0.06)
-			kl = -0.3
-			kr = -0.18
-			hips_y = -0.04 + sin(_time * 2.2) * 0.008
-			lean = -0.06
-	else:
-		# In der Luft: Beine angezogen, beim Fallen gestreckt
-		var rising := clampf(vertical_velocity / 6.0, -1.0, 1.0)
-		hl.x = 0.55 + 0.35 * rising
-		hr.x = -0.25 + 0.15 * rising
-		kl = -1.1 - 0.3 * rising
-		kr = -0.5
-		lean = -0.12
-
-	# --- Schwert / Schild Grundposen ---
-	var grip := Vector3(0.27, -0.30, -0.16)
-	var sdir := Vector3(0.12, -0.32, -1.0)
+	# --- Waffe / Schild Grundposen ---
+	var grip := Vector3(0.27, -0.30, -0.16).lerp(Vector3(0.30, -0.34, 0.02), minf(s, 1.0) * wm)
+	var sdir := Vector3(0.12, -0.32, -1.0).lerp(Vector3(0.25, -0.75, 0.55), minf(s, 1.0) * wm)
 	var sflat := Vector3(1, 0, 0)
-	if moving:
-		grip = grip.lerp(Vector3(0.30, -0.34, 0.02), minf(s, 1.0))
-		sdir = sdir.lerp(Vector3(0.25, -0.75, 0.55), minf(s, 1.0))
-		grip.z += sin(_phase) * 0.06 * s
+	grip.z += sin(_phase) * 0.07 * minf(s, 1.0) * wm
+	grip.y += breathe * 0.006 * (1.0 - wm)
 	var sh_pos := Vector3(-0.28, -0.18, -0.12)
 	var sh_front := Vector3(-0.5, 0.0, -0.85)
-	if moving:
-		sh_pos.z += sin(_phase + PI) * 0.05 * s
+	sh_pos.z += sin(_phase + PI) * 0.05 * minf(s, 1.0) * wm
+	var hand_f := 4.0  # Federfrequenz der Hände
 
-	var anim_rate := 16.0
 	match action:
 		&"swing":
 			var k := _swing_pose(swing_index, action_t)
@@ -301,20 +360,22 @@ func tick(delta: float) -> void:
 			twist = k[3]
 			lean += k[4]
 			hips_drop = k[5]
-			anim_rate = 40.0
+			hand_f = 9.0  # Schwung soll knackig sein
 			_trail.emitting = action_t > k[6].x and action_t < k[6].y
 		&"roll":
 			var e := _ease_roll(action_t)
-			rig_rot.x = -TAU * e
-			rig_y = RIG_Y - 0.22 * sin(action_t * PI)
-			hl.x = 1.5
-			hr.x = 1.3
-			kl = -2.3
-			kr = -2.2
+			rig_x = -TAU * e
+			rig_direct = true
+			rig_y = RIG_Y - 0.2 * sin(action_t * PI)
+			var tuck := sin(clampf(action_t * 1.2, 0.0, 1.0) * PI)
+			hl.x = lerpf(hl.x, 1.5, tuck)
+			hr.x = lerpf(hr.x, 1.3, tuck)
+			kl = lerpf(kl, -2.3, tuck)
+			kr = lerpf(kr, -2.2, tuck)
 			grip = Vector3(0.2, -0.05, -0.25)
 			sdir = Vector3(0.2, -0.4, 1.0)
 			sh_pos = Vector3(-0.2, 0.0, -0.3)
-			anim_rate = 30.0
+			hand_f = 6.0
 		&"bash":
 			var w := sin(clampf(action_t * 2.2, 0.0, 1.0) * PI)
 			sh_pos = Vector3(-0.04, 0.04, -0.40 - 0.22 * w)
@@ -324,7 +385,7 @@ func tick(delta: float) -> void:
 			lean -= 0.3 * w
 			twist = 0.35 * w
 			hips_drop = 0.08 * w
-			anim_rate = 40.0
+			hand_f = 9.0
 		&"stagger":
 			var w := sin(minf(action_t * 1.3, 1.0) * PI)
 			lean += 0.45 * w
@@ -333,11 +394,12 @@ func tick(delta: float) -> void:
 			kr = -0.4
 			grip = Vector3(0.42, -0.1, 0.12)
 			sh_pos = Vector3(-0.42, -0.05, 0.05)
-			anim_rate = 30.0
+			hand_f = 6.0
 		&"dead":
 			var w := clampf(action_t * 2.2, 0.0, 1.0)
-			rig_rot.x = 1.45 * (1.0 - pow(1.0 - w, 3.0))
-			rig_y = RIG_Y - 0.32 * w
+			rig_x = 1.45 * (1.0 - pow(1.0 - w, 3.0))
+			rig_direct = true
+			rig_y = RIG_Y - 0.3 * w
 			kl = -0.6
 			kr = -0.3
 			grip = Vector3(0.45, -0.3, 0.1)
@@ -346,50 +408,76 @@ func tick(delta: float) -> void:
 		_trail.emitting = false
 
 	if block_amount > 0.0 and has_shield:
-		var b := block_amount
+		var b := block_amount * block_amount * (3.0 - 2.0 * block_amount)
 		sh_pos = sh_pos.lerp(Vector3(-0.06, 0.06, -0.42), b)
 		sh_front = sh_front.lerp(Vector3(0.05, 0.12, -1.0), b)
 		if action != &"swing":
 			grip = grip.lerp(Vector3(0.32, -0.12, 0.06), b)
 			sdir = sdir.lerp(Vector3(0.25, 0.55, -0.45), b)
-		lean -= 0.12 * b
+		lean -= 0.1 * b
 		hips_drop += 0.06 * b
-		if not moving:
-			kl -= 0.25 * b
-			kr -= 0.2 * b
+		kl -= 0.22 * b * (1.0 - wm)
+		kr -= 0.18 * b * (1.0 - wm)
+		hand_f = maxf(hand_f, 7.0)
 
-	# --- anwenden (mit Glättung) ---
-	grip = _scale_pose(grip)
-	sh_pos = _scale_pose(sh_pos)
-	var kf := 1.0 - exp(-anim_rate * delta)
-	var kb := 1.0 - exp(-18.0 * delta)
-	_sw_grip = _sw_grip.lerp(grip, kf)
-	_sw_dir = _sw_dir.lerp(sdir.normalized(), kf).normalized()
-	_sw_flat = _sw_flat.lerp(sflat.normalized(), kf).normalized()
-	_twist = lerpf(_twist, twist, kf)
-	_lean = lerpf(_lean, lean, kb)
-	_hips_drop = lerpf(_hips_drop, hips_drop, kf)
+	# --- Federn anwenden ---
+	_sp_grip.set_params(hand_f, 0.8, 1.1)
+	_sp_dir.set_params(hand_f, 0.8, 1.1)
+	_sp_flat.set_params(hand_f, 0.9, 1.0)
+	_sp_shield.set_params(maxf(hand_f * 0.85, 3.5), 0.75, 1.0)
+	_sp_shield_dir.set_params(maxf(hand_f * 0.85, 3.5), 0.8, 1.0)
+	_sp_twist.set_params(hand_f * 0.8, 0.7, 1.2)
+	var g: Vector3 = _sp_grip.update(delta, _scale_pose(grip))
+	var d: Vector3 = _sp_dir.update(delta, sdir.normalized())
+	var f: Vector3 = _sp_flat.update(delta, sflat.normalized())
+	var sp: Vector3 = _sp_shield.update(delta, _scale_pose(sh_pos))
+	var sf: Vector3 = _sp_shield_dir.update(delta, sh_front.normalized())
+	var tw: float = _sp_twist.update(delta, twist)
+	var ln: float = _sp_lean.update(delta, lean)
+	var bk: float = _sp_bank.update(delta, bank)
+	var dr: float = _sp_drop.update(delta, hips_drop)
 
-	rig.rotation = rig_rot if action == &"roll" else rig.rotation.lerp(rig_rot, kb)
-	rig.position.y = lerpf(rig.position.y, rig_y, 1.0 - exp(-25.0 * delta))
-	hips.position.y = HIPS_Y + hips_y - _hips_drop
-	hips.rotation.y = _lower_yaw
-	chest.rotation = Vector3(_lean, _twist - _lower_yaw, 0)
-	hip_l.rotation = hip_l.rotation.lerp(hl, kb)
-	hip_r.rotation = hip_r.rotation.lerp(hr, kb)
-	knee_l.rotation.x = lerpf(knee_l.rotation.x, kl, kb)
-	knee_r.rotation.x = lerpf(knee_r.rotation.x, kr, kb)
+	# Rolle: direkt gesteuert; danach federt der Körper auf dem kürzesten Weg zurück
+	if rig_direct:
+		_sp_rig_x.reset(rig_x)
+		rig.rotation.x = rig_x
+	else:
+		if absf(_sp_rig_x.y) > PI:
+			_sp_rig_x.reset(wrapf(_sp_rig_x.y, -PI, PI))
+		rig.rotation.x = _sp_rig_x.update(delta, rig_x)
+	rig.rotation.z = bk
+	rig.position.y = _sp_rig_y.update(delta, rig_y) if not rig_direct else rig_y
+	if rig_direct:
+		_sp_rig_y.reset(rig_y)
+	hips.position.y = HIPS_Y + hips_y - dr
+	hips.rotation.y = lower_yaw
+	chest.rotation = Vector3(ln, tw - lower_yaw, -bk * 0.5)
+	hip_l.rotation = hl
+	hip_r.rotation = hr
+	knee_l.rotation.x = kl
+	knee_r.rotation.x = kr
 
-	# Stoff schwingt nach
-	tabard_front.rotation.x = maxf(hl.x, hr.x) * 0.6 + 0.05
-	tabard_back.rotation.x = minf(hl.x, hr.x) * 0.6 - 0.05 - 0.25 * minf(s, 1.0)
-	scarf_tail.rotation.x = lerpf(scarf_tail.rotation.x, 0.25 + 0.9 * minf(s, 1.2) + sin(_time * 9.0) * 0.12 * s - vertical_velocity * 0.05, kb)
+	# Kopf schaut zum Blickziel (begrenzt), sonst leicht in Laufrichtung
+	var look := Vector2.ZERO
+	if look_target != null:
+		var local_t: Vector3 = chest.global_transform.affine_inverse() * (look_target as Vector3)
+		var to := local_t - head.position
+		look = Vector2(clampf(atan2(-to.x, -to.z), -0.9, 0.9), clampf(atan2(to.y, Vector2(to.x, to.z).length()), -0.4, 0.3))
+	var hlook: Vector2 = _sp_head.update(delta, look)
+	head.rotation = Vector3(hlook.y - ln * 0.5, hlook.x, 0.0)
 
-	sword.transform = Transform3D(_basis_from(-_sw_dir, _sw_flat), _sw_grip)
+	# Stoff schwingt mit Trägheit nach
+	var cloth_drive := minf(s, 1.2)
+	var tf: float = _sp_tab_f.update(delta, maxf(hl.x, hr.x) * 0.55 + 0.05 - ln * 0.3 + clampf(accel * 0.02, -0.4, 0.4))
+	var tb: float = _sp_tab_b.update(delta, minf(hl.x, hr.x) * 0.55 - 0.05 - 0.3 * cloth_drive - ln * 0.3 + clampf(accel * 0.02, -0.4, 0.4))
+	tabard_front.rotation.x = tf
+	tabard_back.rotation.x = tb
+	var sc: float = _sp_scarf.update(delta, 0.25 + 0.9 * cloth_drive - vertical_velocity * 0.06 + clampf(accel * 0.03, -0.5, 0.5))
+	scarf_tail.rotation = Vector3(sc + sin(_time * 8.0) * 0.08 * cloth_drive, 0.0, bk * 1.5)
+
+	sword.transform = Transform3D(_basis_from(-d.normalized(), f.normalized()), g)
 	if has_shield:
-		shield.position = shield.position.lerp(sh_pos, kf)
-		var sb := _basis_from(-sh_front.normalized(), Vector3.UP, true)
-		shield.basis = shield.basis.slerp(sb, kf).orthonormalized()
+		shield.transform = Transform3D(_basis_from(-sf.normalized(), Vector3.UP, true), sp)
 
 	# --- Arm-IK ---
 	var cb := chest.global_basis
@@ -397,7 +485,8 @@ func tick(delta: float) -> void:
 	if has_shield:
 		_solve_arm(arm_up_l, arm_lo_l, chest.global_transform * SHOULDER_L, shield.global_transform * Vector3(0, 0, 0.07), cb * Vector3(-0.8, -1.0, 0.4))
 	else:
-		_solve_arm(arm_up_l, arm_lo_l, chest.global_transform * SHOULDER_L, chest.global_transform * Vector3(-0.3, -0.05, -0.05), cb * Vector3(-0.8, -1.0, 0.4))
+		var swing_l := sin(_phase) * 0.08 * minf(s, 1.0) * wm
+		_solve_arm(arm_up_l, arm_lo_l, chest.global_transform * SHOULDER_L, chest.global_transform * Vector3(-0.27, 0.0, -0.05 + swing_l), cb * Vector3(-0.8, -1.0, 0.4))
 
 	if _trail.emitting or _trail.has_points():
 		var pts := sword_points()
@@ -490,14 +579,27 @@ func _swing_pose(index: int, t: float) -> Array:
 				[0.62, Vector3(0.03, -0.46, -0.48), Vector3(0.0, -0.8, -0.6), Vector3(1, 0, 0), 0.05, -0.45, 0.2],
 				[1.0, Vector3(0.27, -0.30, -0.16), Vector3(0.12, -0.32, -1), Vector3(1, 0, 0), 0.0, 0.0, 0.0],
 			]
+	# Catmull-Rom durch die Keyframes: durchgehende Geschwindigkeit, keine Stopps an den Keys
 	var i := 0
 	while i < keys.size() - 2 and t > keys[i + 1][0]:
 		i += 1
-	var k0: Array = keys[i]
-	var k1: Array = keys[i + 1]
-	var u := clampf((t - k0[0]) / maxf(k1[0] - k0[0], 0.001), 0.0, 1.0)
-	u = u * u * (3.0 - 2.0 * u)
-	var g: Vector3 = (k0[1] as Vector3).lerp(k1[1], u)
-	var d: Vector3 = (k0[2] as Vector3).normalized().slerp((k1[2] as Vector3).normalized(), u)
-	var f: Vector3 = (k0[3] as Vector3).normalized().lerp((k1[3] as Vector3).normalized(), u)
-	return [g, d, f, lerpf(k0[4], k1[4], u), lerpf(k0[5], k1[5], u), lerpf(k0[6], k1[6], u), trail_window]
+	var k0: Array = keys[maxi(i - 1, 0)]
+	var k1: Array = keys[i]
+	var k2: Array = keys[i + 1]
+	var k3: Array = keys[mini(i + 2, keys.size() - 1)]
+	var u := clampf((t - k1[0]) / maxf(k2[0] - k1[0], 0.001), 0.0, 1.0)
+	var g := _cr(k0[1], k1[1], k2[1], k3[1], u)
+	var d := _cr((k0[2] as Vector3).normalized(), (k1[2] as Vector3).normalized(), (k2[2] as Vector3).normalized(), (k3[2] as Vector3).normalized(), u).normalized()
+	var f := _cr((k0[3] as Vector3).normalized(), (k1[3] as Vector3).normalized(), (k2[3] as Vector3).normalized(), (k3[3] as Vector3).normalized(), u).normalized()
+	var sc := Vector3(_crf(k0[4], k1[4], k2[4], k3[4], u), _crf(k0[5], k1[5], k2[5], k3[5], u), _crf(k0[6], k1[6], k2[6], k3[6], u))
+	return [g, d, f, sc.x, sc.y, sc.z, trail_window]
+
+
+func _cr(p0: Vector3, p1: Vector3, p2: Vector3, p3: Vector3, u: float) -> Vector3:
+	var u2 := u * u
+	var u3 := u2 * u
+	return 0.5 * ((2.0 * p1) + (-p0 + p2) * u + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * u2 + (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * u3)
+
+
+func _crf(p0: float, p1: float, p2: float, p3: float, u: float) -> float:
+	return _cr(Vector3(p0, 0, 0), Vector3(p1, 0, 0), Vector3(p2, 0, 0), Vector3(p3, 0, 0), u).x

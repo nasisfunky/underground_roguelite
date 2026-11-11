@@ -803,7 +803,8 @@ func _update_body(delta: float) -> void:
 	body.local_move = Vector2(local.x, -local.z) / maxf(run_speed, 0.1)
 	body.on_floor = is_on_floor() or state == State.ROLL
 	body.vertical_velocity = velocity.y
-	body.block_amount = move_toward(body.block_amount, 1.0 if _blocking else 0.0, delta * 12.0)
+	body.block_amount = move_toward(body.block_amount, 1.0 if _blocking else 0.0, delta * 9.0)
+	body.look_target = target.target_point() if target and is_instance_valid(target) and not target.is_dead() and target.global_position.distance_to(global_position) < 12.0 else null
 	match state:
 		State.ROLL:
 			body.action = &"roll"
