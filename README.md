@@ -50,7 +50,7 @@ Fähigkeiten auf 1–9 ersetzen den Auto-Angriff für ihre Dauer.
 
 1. **Hall of Pillars** – Laufen, Springen, Rampe und Plattform-Parcours mit Lücke.
 2. **Training Yard** – drei Trainingspuppen für Auto-Angriff und Fähigkeiten.
-3. **Pyramid Chamber** (tiefer gelegen) – drei Hollow Shades, die zurückschlagen.
+3. **Sealed Hall** (tiefer gelegen, mit versiegeltem Tor) – drei Hollow Shades, die zurückschlagen.
    Die Augen glühen beim Ausholen auf. Dann blocken, parieren oder durchrollen.
    Besiegte Gegner erscheinen nach einigen Sekunden neu.
 

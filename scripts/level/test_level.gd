@@ -3,7 +3,7 @@ extends Node3D
 ##
 ##  Raum 1 "Säulenhalle"      – Laufen, Springen, Rampe, Plattform-Parcours
 ##  Raum 2 "Übungshof"        – Trainingspuppen für Auto-Angriff und Fähigkeiten
-##  Raum 3 "Pyramidenkammer"  – Hohlwandler, die zurückschlagen (Blocken, Parieren, Rollen)
+##  Raum 3 "Sealed Hall"      – Hollow Shades, die zurückschlagen (Blocken, Parieren, Rollen)
 ##
 ## Die Räume liegen hintereinander Richtung -Z, Raum 3 liegt tiefer (es geht nach unten).
 
@@ -24,7 +24,7 @@ func _ready() -> void:
 	_build_corridor(Vector3(0, 0, -13), Vector3(0, 0, -22), 6.0, 9.0)
 	_build_room_training()
 	_build_ramp_corridor()
-	_build_room_pyramid()
+	_build_room_sealed()
 	_spawn_player(Vector3(0, 0.1, 9), 0.0)
 
 
@@ -142,26 +142,26 @@ func _build_ramp_corridor() -> void:
 	_block(Vector3(0, 8.5, -52.5), Vector3(w + 4.0, 1.5, 13.0), LowPoly.STONE_DARK)  # Decke -> Tunnelgefühl
 
 
-func _build_room_pyramid() -> void:
+func _build_room_sealed() -> void:
 	var y := -3.0
 	var c := Vector3(0, y, -76)
-	_room_shell(c, Vector2(34, 34), [], [Vector2(0, 6)], "Pyramid Chamber")
-	# Stufenpyramide (warmer Ocker-Kontrast)
-	var pc := Vector3(0, y, -88)
-	var tiers := [[14.0, 1.6], [11.0, 1.5], [8.0, 1.4], [5.2, 1.3], [2.6, 1.2]]
-	var h := 0.0
-	for i in tiers.size():
-		var t: Array = tiers[i]
-		var col := LowPoly.OCHRE.darkened(0.08 * (i % 2))
-		_block(pc + Vector3(0, h + t[1] * 0.5, 0), Vector3(t[0], t[1], t[0] * 0.8), col)
-		h += t[1]
-	_block(pc + Vector3(0, h + 0.8, 0), Vector3(1.6, 1.6, 1.6), LowPoly.OCHRE.darkened(0.15)).rotation.y = PI / 4
-	# Leuchtendes Auge in der Pyramide
-	var eye_frame := _block(pc + Vector3(0, 4.3, 4.1), Vector3(4.0, 1.4, 0.4), Color(0.08, 0.1, 0.1))
-	eye_frame.rotation.z = 0.0
-	var eye := LowPoly.mesh_instance(LowPoly.rock(0.45, 2, 6, 4, 0.1), LowPoly.mat(LowPoly.CYAN, 6.0), _geo, pc + Vector3(0, 4.3, 4.35))
-	eye.scale = Vector3(1, 1, 0.5)
-	_light(pc + Vector3(0, 4.3, 6.0), LowPoly.CYAN, 3.0, 12.0)
+	_room_shell(c, Vector2(34, 34), [], [Vector2(0, 6)], "Sealed Hall")
+	# Versiegeltes Tor in der Nordwand: zwei schräge Strebepfeiler, schwere Torflügel,
+	# ein schmaler leuchtender Spalt dazwischen (Platzhalter für den Weg tiefer hinab).
+	var gz := -92.2
+	for side in [-1.0, 1.0]:
+		var but := _block(Vector3(side * 4.2, y + 4.5, gz + 0.6), Vector3(1.8, 9.0, 2.4), LowPoly.STONE_DARK)
+		but.rotation.z = side * 0.06
+		_block(Vector3(side * 1.55, y + 3.6, gz), Vector3(3.0, 7.2, 0.9), LowPoly.STONE.darkened(0.2))
+		for k in 3:
+			_block(Vector3(side * 1.55, y + 1.4 + k * 2.2, gz + 0.5), Vector3(2.4, 0.18, 0.15), LowPoly.OCHRE.darkened(0.3))
+	_block(Vector3(0, y + 7.8, gz + 0.4), Vector3(10.4, 1.4, 2.6), LowPoly.STONE_DARK)
+	_block(Vector3(0, y + 8.9, gz + 0.4), Vector3(7.0, 0.8, 2.2), LowPoly.STONE.darkened(0.1))
+	var seam := LowPoly.mesh_instance(LowPoly.box(Vector3(0.08, 7.0, 0.95)), LowPoly.mat(LowPoly.CYAN, 5.0), _geo, Vector3(0, y + 3.5, gz))
+	seam.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_light(Vector3(0, y + 3.0, gz + 2.0), LowPoly.CYAN, 2.5, 10.0)
+	_block(Vector3(0, y + 0.2, gz + 2.0), Vector3(7.0, 0.4, 2.0), LowPoly.STONE_LIGHT)
+	_block(Vector3(0, y + 0.1, gz + 3.4), Vector3(8.5, 0.2, 1.2), LowPoly.STONE_LIGHT.darkened(0.1))
 	# Säulen und Kristallschalen
 	for z in [-66.0, -76.0]:
 		for x in [-11.0, 11.0]:
