@@ -132,6 +132,7 @@ func _ready() -> void:
 
 	body = ShadowBody.new()
 	body.name = "Body"
+	body.has_lantern = true
 	body.build()
 	add_child(body)
 	body.rotation.y = facing_yaw

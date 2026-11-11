@@ -11,12 +11,14 @@ func _ready() -> void:
 	await _frames(30)
 	var p: Player = level.player
 	var shots := [
+		["00_ward_gate", Vector3(0, 0.1, 9), PI, -0.2, 6.0],
 		["01_hall", Vector3(0, 0.1, 9), 0.0, -0.25, 7.0],
+		["01b_ledge", Vector3(-9.5, 2.3, -2.5), 0.4, -0.3, 5.0],
 		["02_hall_parcours", Vector3(3, 0.1, 4), -1.0, -0.3, 7.5],
 		["03_training", Vector3(0, 0.1, -26), 0.0, -0.3, 7.0],
 		["04_ramp", Vector3(0, 0.1, -44), 0.0, -0.2, 6.0],
 		["05_sealed_hall", Vector3(0, -2.9, -62), 0.0, -0.12, 7.0],
-		["06_closeup", Vector3(0, 0.1, -30), 2.6, -0.15, 3.2],
+		["06_closeup", Vector3(0, 0.1, -30), 2.0, -0.15, 2.6],
 		["07_husk_close", Vector3(-3, -2.9, -69), 0.0, -0.1, 3.5],
 	]
 	for s in shots:

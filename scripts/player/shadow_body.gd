@@ -20,6 +20,11 @@ var eye_color := LowPoly.EYE_YELLOW
 var headgear: Headgear = Headgear.HOOD
 var has_shield := true
 var weapon_length := 0.78
+## Splitter-Laterne ("Shard Lantern") am linken Hüftgurt: eigenes Licht, kein Ausrüstungsplatz
+var has_lantern := false
+var lantern_color := Color(1.0, 0.80, 0.52)
+var lantern_energy := 1.7
+var lantern_range := 8.5
 
 # --- Eingänge vom Controller (pro Tick setzen) ---
 var speed := 0.0  ## horizontale Geschwindigkeit in m/s
@@ -55,12 +60,18 @@ var scarf_tail: Node3D
 var tabard_front: Node3D
 var tabard_back: Node3D
 var eye_mat: StandardMaterial3D
+var lantern: Node3D  ## Pendel-Knoten (hängt an der Hüfte)
+var lantern_light: OmniLight3D
+var _lantern_core: MeshInstance3D
+var _sp_lan_x: Spring
+var _sp_lan_z: Spring
 
 # Proportionen (müssen zu tools/blender/build_shade.py passen)
 const UPPER_ARM := 0.29
 const LOWER_ARM := 0.33
 const THIGH := 0.38
 const SHIN := 0.43
+const LANTERN_LAYER := 1 << 9  ## Render-Ebene 10: Laternen-Meshes
 const RIG_Y := 0.45  ## Drehpunkt für Rolle/Sturz
 const HIPS_Y := 0.36  ## Hüfte relativ zum Rig -> 0,81 m (Spitzen berühren im Stand den Boden)
 const CHEST_Y := 0.04
@@ -208,6 +219,83 @@ func build() -> void:
 
 	_trail = SwordTrail.new()
 	add_child(_trail)
+
+	if has_lantern:
+		_build_lantern()
+
+
+## Kleine Käfiglaterne mit leuchtendem Kristallsplitter, an einem kurzen Riemen.
+func _build_lantern() -> void:
+	var metal := LowPoly.mat(Color(0.09, 0.08, 0.07), 0.0, 0.6)
+	var strap := LowPoly.mat(cloth_color.darkened(0.55))
+	var hook := _joint(hips, Vector3(-0.2, 0.03, 0.05))
+	hook.rotation.y = 0.35
+	LowPoly.mesh_instance(LowPoly.box(Vector3(0.05, 0.1, 0.07)), strap, hook)  # Gurtschlaufe
+	lantern = _joint(hook, Vector3(0, -0.04, 0))
+	var ring := LowPoly.mesh_instance(LowPoly.prism(0.018, 0.018, 0.06, 4), metal, lantern, Vector3(0, -0.03, 0))
+	ring.rotation.z = PI / 2
+	var top := LowPoly.mesh_instance(LowPoly.prism(0.075, 0.02, 0.045, 6), metal, lantern, Vector3(0, -0.08, 0))
+	top.rotation.y = PI / 6
+	var bottom := LowPoly.mesh_instance(LowPoly.prism(0.06, 0.075, 0.035, 6), metal, lantern, Vector3(0, -0.235, 0))
+	bottom.rotation.y = PI / 6
+	for k in 6:  # Käfigstreben
+		var a := TAU * k / 6.0
+		LowPoly.mesh_instance(LowPoly.box(Vector3(0.012, 0.13, 0.012)), metal, lantern, Vector3(cos(a) * 0.068, -0.155, sin(a) * 0.068))
+	var glass := StandardMaterial3D.new()
+	glass.albedo_color = Color(lantern_color.r, lantern_color.g, lantern_color.b, 0.25)
+	glass.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	glass.emission_enabled = true
+	glass.emission = lantern_color
+	glass.emission_energy_multiplier = 0.25
+	glass.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	var pane := LowPoly.mesh_instance(LowPoly.prism(0.062, 0.062, 0.12, 6), glass, lantern, Vector3(0, -0.155, 0))
+	pane.rotation.y = PI / 6
+	_lantern_core = LowPoly.mesh_instance(LowPoly.crystal(0.11, 0.028), LowPoly.mat(lantern_color, 2.2), lantern, Vector3(0, -0.21, 0))
+	for n in lantern.find_children("*", "MeshInstance3D", true, false):
+		(n as MeshInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		(n as MeshInstance3D).layers = LANTERN_LAYER  # vom eigenen Licht nicht angestrahlt (sonst überstrahlt)
+	for n in hook.get_children():
+		if n is MeshInstance3D:
+			(n as MeshInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			(n as MeshInstance3D).layers = LANTERN_LAYER
+
+	lantern_light = OmniLight3D.new()
+	lantern_light.name = "LanternLight"
+	lantern_light.light_color = lantern_color
+	lantern_light.light_energy = lantern_energy
+	lantern_light.omni_range = lantern_range
+	lantern_light.omni_attenuation = 1.6  # fällt zum Rand hin deutlich ab: nah hell, weiter weg nur Ahnung
+	lantern_light.shadow_enabled = true
+	lantern_light.shadow_bias = 0.08
+	lantern_light.shadow_normal_bias = 1.5
+	lantern_light.shadow_blur = 1.5
+	lantern_light.light_volumetric_fog_energy = 0.02
+	lantern_light.light_cull_mask = ~LANTERN_LAYER & 0xFFFFF
+	lantern_light.add_to_group("light_sources")
+	add_child(lantern_light)
+	_sp_lan_x = Spring.new(1.3, 0.28, 1.0, 0.0)
+	_sp_lan_z = Spring.new(1.3, 0.28, 1.0, 0.0)
+
+
+func _update_lantern(delta: float, s: float, accel: float, yaw_rate: float) -> void:
+	if lantern == null:
+		return
+	# Pendel: hängt immer nach unten, schwingt bei Beschleunigung, Drehung und Schritten nach
+	var hip_basis: Basis = (lantern.get_parent() as Node3D).global_basis.orthonormalized()
+	var down_local: Vector3 = hip_basis.inverse() * Vector3.DOWN
+	var hang_x := atan2(-down_local.z, -down_local.y)  # Gegenrotation zur Körperneigung
+	var hang_z := atan2(down_local.x, -down_local.y)
+	var step := sin(_phase * 2.0) * 0.07 * minf(s, 1.0)
+	var tx := clampf(hang_x - accel * 0.035 - s * 0.12 + step, -1.3, 1.3)
+	var tz := clampf(hang_z - yaw_rate * 0.05 + cos(_phase) * 0.06 * minf(s, 1.0), -1.2, 1.2)
+	lantern.rotation = Vector3(_u(_sp_lan_x, delta, tx), 0.0, _u(_sp_lan_z, delta, tz))
+	# Licht sitzt ruhig neben der Laterne (etwas außen, damit das eigene Bein kaum Schatten wirft)
+	var core := _lantern_core.global_position
+	var out := global_basis.x * -0.3 + Vector3.UP * 0.2
+	lantern_light.global_position = core + out
+	# leichtes, lebendiges Flackern des Splitters
+	var flick := 1.0 + sin(_time * 7.3) * 0.025 + sin(_time * 12.9 + 1.3) * 0.02
+	lantern_light.light_energy = lantern_energy * flick
 
 
 func _joint(parent: Node, pos: Vector3) -> Node3D:
@@ -545,6 +633,7 @@ func tick(delta: float) -> void:
 	tabard_back.rotation.x = tb
 	var sc: float = _u(_sp_scarf, delta, 0.25 + 0.9 * cloth_drive - vertical_velocity * 0.06 + clampf(accel * 0.03, -0.5, 0.5))
 	scarf_tail.rotation = Vector3(sc + sin(_time * 8.0) * 0.08 * cloth_drive, 0.0, bk * 1.5)
+	_update_lantern(delta, s, accel, yaw_rate)
 
 	sword.transform = Transform3D(_basis_from(-d.normalized(), f.normalized()), g)
 	if has_shield:

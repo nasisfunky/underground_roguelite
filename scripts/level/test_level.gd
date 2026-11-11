@@ -1,9 +1,11 @@
 extends Node3D
-## Testlevel mit drei Räumen, komplett per Code aus Low-Poly-Formen gebaut.
+## Testlevel: die ersten drei Hallen des Grimvault, direkt unter der Siedlung Vigil.
+## Komplett per Code aus Low-Poly-Formen gebaut. Alles liegt im Untergrund und ist dunkel;
+## die Laterne des Spielers reicht für die nähere Umgebung, nicht für den ganzen Raum.
 ##
-##  Raum 1 "Säulenhalle"      – Laufen, Springen, Rampe, Plattform-Parcours
-##  Raum 2 "Übungshof"        – Trainingspuppen für Auto-Angriff und Fähigkeiten
-##  Raum 3 "Sealed Hall"      – Hollow Shades, die zurückschlagen (Blocken, Parieren, Rollen)
+##  Raum 1 "The Threshold"    – Tor nach Vigil, letztes Feuer, Parcours auf Trümmern, Rampe
+##  Raum 2 "Wardens' Ring"    – Übungsring mit Puppen aus Wurzelholz
+##  Raum 3 "The Sunken Gate"  – versiegeltes Tor nach unten, Hollow Shades schlagen zurück
 ##
 ## Die Räume liegen hintereinander Richtung -Z, Raum 3 liegt tiefer (es geht nach unten).
 
@@ -29,123 +31,153 @@ func _ready() -> void:
 
 
 # ==================================================================
-# Umgebung
+# Umgebung: tief unter der Erde, kein Himmel, keine Sonne.
+# Licht kommt nur von der Laterne des Spielers und von wenigen Quellen der Bright:
+# Kristalle (kühles Cyan), Pilze (schwaches Glimmen), Feuer (warm, von den Wardens aus Vigil gehütet).
 # ==================================================================
+
+const FIRE := Color(1.0, 0.52, 0.2)
+const SHROOM := Color(0.45, 1.0, 0.72)
+const ROOTWOOD := Color(0.15, 0.10, 0.075)
+const CLOTH_OLD := Color(0.13, 0.16, 0.16)
+const METAL_OLD := Color(0.2, 0.21, 0.2)
 
 func _build_environment() -> void:
 	var we := WorldEnvironment.new()
 	var e := Environment.new()
 	e.background_mode = Environment.BG_COLOR
-	e.background_color = Color(0.07, 0.12, 0.13)
+	e.background_color = Color(0.004, 0.007, 0.009)
+	# Grundlicht fast null: Formen bleiben gerade so als Silhouette erahnbar
 	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	e.ambient_light_color = Color(0.36, 0.56, 0.56)
-	e.ambient_light_energy = 0.65
+	e.ambient_light_color = Color(0.22, 0.36, 0.38)
+	e.ambient_light_energy = 0.075
 	e.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	e.tonemap_exposure = 1.05
+	e.tonemap_exposure = 1.15
+	# dunkler Nebel schluckt alles, was die Laterne nicht erreicht
 	e.fog_enabled = true
-	e.fog_light_color = Color(0.17, 0.29, 0.30)
+	e.fog_light_color = Color(0.012, 0.022, 0.026)
 	e.fog_light_energy = 1.0
-	e.fog_density = 0.016
-	e.fog_aerial_perspective = 0.25
+	e.fog_density = 0.05
+	e.fog_aerial_perspective = 0.0
 	e.fog_sky_affect = 1.0
-	e.fog_height = 6.0
-	e.fog_height_density = 0.05
 	e.glow_enabled = true
-	e.glow_intensity = 0.9
+	e.glow_intensity = 1.0
 	e.glow_strength = 1.0
-	e.glow_bloom = 0.04
-	e.glow_hdr_threshold = 0.9
+	e.glow_bloom = 0.02
+	e.glow_hdr_threshold = 1.1
 	e.ssao_enabled = true
-	e.ssao_radius = 1.6
-	e.ssao_intensity = 2.2
+	e.ssao_radius = 1.2
+	e.ssao_intensity = 2.0
+	# Volumetrischer Nebel nur für sichtbare Lichthöfe um Feuer, Kristalle und Laterne
 	e.volumetric_fog_enabled = true
-	e.volumetric_fog_density = 0.012
-	e.volumetric_fog_albedo = Color(0.55, 0.78, 0.78)
-	e.volumetric_fog_length = 60.0
+	e.volumetric_fog_density = 0.018
+	e.volumetric_fog_albedo = Color(0.6, 0.75, 0.75)
+	e.volumetric_fog_length = 40.0
+	e.volumetric_fog_ambient_inject = 0.0
 	e.adjustment_enabled = true
 	e.adjustment_saturation = 1.05
-	e.adjustment_contrast = 1.05
+	e.adjustment_contrast = 1.08
 	we.environment = e
 	add_child(we)
 
-	var sun := DirectionalLight3D.new()
-	sun.rotation = Vector3(deg_to_rad(-58), deg_to_rad(28), 0)
-	sun.light_color = Color(0.78, 0.96, 0.95)
-	sun.light_energy = 1.15
-	sun.shadow_enabled = true
-	sun.shadow_blur = 1.5
-	sun.directional_shadow_max_distance = 60.0
-	add_child(sun)
-
 
 # ==================================================================
-# Räume
+# Räume: die ersten Hallen hinter der Öffnung des Grimvault, gleich unter Vigil.
 # ==================================================================
 
+## Raum 1: Die Wardens von Vigil schließen das Wurzelholz-Tor hinter jedem, der hinabsteigt.
+## Ein letztes Feuer brennt am Tor, danach nur noch Dunkelheit, Pilze und der Kristall auf den Trümmern.
 func _build_room_hall() -> void:
 	var c := Vector3(0, 0, 0)
-	_room_shell(c, Vector2(26, 26), [], [Vector2(0, 6)], "Hall of Pillars")
-	# Monumentale Säulen
+	_room_shell(c, Vector2(26, 26), [Vector2(0, 6)], [Vector2(0, 6)], "The Threshold", true)
+	_ward_gate(Vector3(0, 0, 14.0), 6.0)
+	_fire_bowl(Vector3(3.6, 0, 11.2), 1.0)
+	_gear_pile(Vector3(-3.2, 0, 10.6), 0.6, 1)
+	# Monumentale Säulen des Grimvault
 	for z in [6.0, -1.0, -8.0]:
 		for x in [-6.5, 6.5]:
 			if x > 0 and z == -1.0:
 				continue  # Platz für den Parcours
 			_pillar(Vector3(x, 0, z), 1.0, WALL_H + 2.0, 5)
-	# Sprungparcours (Osten)
+	# eingestürztes Mauerwerk als Sprungparcours (Osten), oben wartet ein Kristall
 	_block(Vector3(9.0, 0.3, 4.0), Vector3(2.6, 0.6, 2.6), LowPoly.STONE_LIGHT)
 	_block(Vector3(9.5, 0.6, 0.5), Vector3(2.6, 1.2, 2.6), LowPoly.STONE_LIGHT)
 	_block(Vector3(9.5, 0.95, -3.2), Vector3(2.6, 1.9, 2.6), LowPoly.STONE_LIGHT)
 	_block(Vector3(4.6, 0.95, -6.8), Vector3(3.0, 1.9, 3.0), LowPoly.STONE_LIGHT)  # über eine Lücke
-	_crystal_cluster(Vector3(4.6, 1.9, -6.8), 0.8, false)
-	# Rampe hoch zu einem Absatz (Westen)
+	_crystal_cluster(Vector3(4.6, 1.9, -6.8), 0.8)
+	for p in [Vector3(10.8, 0.2, 2.2), Vector3(7.6, 0.2, -5.2), Vector3(8.0, 0.2, 6.0)]:
+		_rock(p, _rng.randf_range(0.35, 0.6), true)
+	# Rampe hoch zu einem Absatz (Westen): oben ist jemand verblasst
 	_ramp(Vector3(-9.5, 0, 6.0), Vector3(-9.5, 2.2, -0.5), 3.4)
 	_block(Vector3(-9.5, 1.1, -3.5), Vector3(4.5, 2.2, 6.0), LowPoly.STONE_LIGHT)
-	_brazier(Vector3(-9.5, 2.2, -5.0))
-	# Deko: Geröll, Splitter
+	_gear_pile(Vector3(-9.8, 2.2, -5.0), 0.0, 2)
+	_mushrooms(Vector3(-11.0, 2.2, -2.2), 5, 0.8)
+	# Pilze entlang der Wände: gerade genug, um Ecken zu erahnen
+	_mushrooms(Vector3(-11.6, 0, 10.5), 6, 1.0)
+	_mushrooms(Vector3(11.4, 0, -10.8), 7, 1.1)
+	_mushrooms(Vector3(-4.0, 0, -11.4), 4, 0.7)
+	_gear_pile(Vector3(2.0, 0, -9.8), 2.3, 0)
 	for i in 7:
 		var p := Vector3(_rng.randf_range(-11, 11), 0, _rng.randf_range(-11, 11))
 		if absf(p.x) < 3.5 or (p.x > 6.0 and p.z < 6.0) or (p.x < -7.0 and p.z < 7.0):
 			continue
 		_rock(p + Vector3(0, 0.15, 0), _rng.randf_range(0.3, 0.7), false)
-	_floating_shards(c + Vector3(0, 10, 0), 12, 11.0)
-	_crystal_cluster(Vector3(-11.5, 0, 11.5), 1.2)
-	_crystal_cluster(Vector3(11.5, 0, 11.5), 1.0)
+	_hanging_roots(Vector3(0, 0, 12.6), 10.0, 9)  # Wurzeln von Vigil wachsen durch die Decke
+	_stalactites(c, 12.0, 12.0, 14)
 
 
+## Raum 2: Übungsring der Wardens. Puppen aus Wurzelholz, behängt mit Ausrüstung verblasster Shades.
 func _build_room_training() -> void:
 	var c := Vector3(0, 0, -34)
-	_room_shell(c, Vector2(26, 24), [Vector2(0, 6)], [Vector2(0, 6)], "Training Yard")
+	_room_shell(c, Vector2(26, 24), [Vector2(0, 6)], [Vector2(0, 6)], "Wardens' Ring", true)
 	for x in [-4.5, 0.0, 4.5]:
 		var d := TrainingDummy.new()
 		d.position = Vector3(x, 0.05, -34.0 - (1.5 if x == 0.0 else 0.0))
 		d.rotation.y = PI
 		add_child(d)
-	for z in [-27.0, -41.0]:
-		for x in [-9.0, 9.0]:
-			_brazier(Vector3(x, 0, z))
+	# Steinring auf dem Boden
+	for i in 22:
+		var a := TAU * i / 22.0
+		var st := LowPoly.mesh_instance(LowPoly.box(Vector3(0.9, 0.08, 0.45)), LowPoly.mat(_vary(LowPoly.STONE_LIGHT)), _geo, c + Vector3(cos(a) * 7.5, 0.03, sin(a) * 7.5))
+		st.rotation.y = -a + _rng.randf_range(-0.1, 0.1)
+	_fire_bowl(Vector3(-8.5, 0, -27.5), 0.9)
+	_fire_bowl(Vector3(8.5, 0, -40.5), 0.9)
+	_weapon_rack(Vector3(10.6, 0, -30.0), -PI / 2)
+	_gear_pile(Vector3(10.2, 0, -33.6), -1.2, 1)
+	_gear_pile(Vector3(-10.4, 0, -38.5), 0.8, 0)
 	for p in [Vector3(-11, 0, -24), Vector3(11, 0, -24), Vector3(-11, 0, -44), Vector3(11, 0, -44)]:
 		_pillar(p, 1.1, WALL_H + 2.0, 6)
+	_mushrooms(Vector3(-11.2, 0, -30.5), 5, 0.9)
+	_mushrooms(Vector3(4.0, 0, -44.8), 4, 0.7)
 	for i in 6:
-		_rock(Vector3(_rng.randf_range(-11, 11), 0.15, _rng.randf_range(-44, -24)) * Vector3(1, 1, 1), _rng.randf_range(0.25, 0.5), false)
-	_floating_shards(c + Vector3(0, 11, 0), 9, 9.0)
+		_rock(Vector3(_rng.randf_range(-11, 11), 0.15, _rng.randf_range(-44, -24)), _rng.randf_range(0.25, 0.5), false)
+	_stalactites(c, 11.0, 12.0, 12)
 
 
+## Abstieg: enger Schacht, nur Kristalladern in den Wänden glimmen.
 func _build_ramp_corridor() -> void:
-	# Abstieg: z -46 .. -59, y 0 .. -3
+	# z -46 .. -59, y 0 .. -3
 	var w := 6.0
 	_ramp(Vector3(0, 0, -46.0), Vector3(0, -3.0, -59.0), w)
 	for side in [-1.0, 1.0]:
 		_block(Vector3(side * (w * 0.5 + 1.0), -1.5 + 4.0, -52.5), Vector3(2.0, 11.0, 13.0), LowPoly.STONE)
 		for z in [-48.5, -52.5, -56.5]:
 			_rock(Vector3(side * (w * 0.5 - 0.1), -3.0 + (z + 59.0) * 3.0 / 13.0 + 0.3, z), 0.6, true)
-	_lamp(Vector3(0, 4.5, -52.5))
-	_block(Vector3(0, 8.5, -52.5), Vector3(w + 4.0, 1.5, 13.0), LowPoly.STONE_DARK)  # Decke -> Tunnelgefühl
+	for p in [Vector3(-2.75, 1.4, -49.5), Vector3(2.75, 0.2, -55.0)]:
+		_crystal_vein(p, -signf(p.x))
+	_block(Vector3(0, 7.0, -52.5), Vector3(w + 4.0, 1.5, 13.0), LowPoly.STONE_DARK)  # niedrige Decke
+	for i in 6:
+		var p := Vector3(_rng.randf_range(-2.4, 2.4), 6.25, _rng.randf_range(-58, -47))
+		var st := LowPoly.mesh_instance(LowPoly.crystal(_rng.randf_range(0.6, 1.4), 0.18), LowPoly.mat(_vary(LowPoly.STONE_DARK)), _geo, p)
+		st.rotation.x = PI
 
 
+## Raum 3: das versiegelte Tor nach unten. Reines Grimvault-Mauerwerk, monumental und still.
+## Der leuchtende Spalt im Tor ist von überall im Raum zu sehen und gibt die Richtung vor.
 func _build_room_sealed() -> void:
 	var y := -3.0
 	var c := Vector3(0, y, -76)
-	_room_shell(c, Vector2(34, 34), [Vector2(0, 6)], [], "Sealed Hall")
+	_room_shell(c, Vector2(34, 34), [Vector2(0, 6)], [], "The Sunken Gate")
 	# Versiegeltes Tor in der Nordwand: zwei schräge Strebepfeiler, schwere Torflügel,
 	# ein schmaler leuchtender Spalt dazwischen (Platzhalter für den Weg tiefer hinab).
 	var gz := -92.2
@@ -157,21 +189,27 @@ func _build_room_sealed() -> void:
 			_block(Vector3(side * 1.55, y + 1.4 + k * 2.2, gz + 0.5), Vector3(2.4, 0.18, 0.15), LowPoly.OCHRE.darkened(0.3))
 	_block(Vector3(0, y + 7.8, gz + 0.4), Vector3(10.4, 1.4, 2.6), LowPoly.STONE_DARK)
 	_block(Vector3(0, y + 8.9, gz + 0.4), Vector3(7.0, 0.8, 2.2), LowPoly.STONE.darkened(0.1))
-	var seam := LowPoly.mesh_instance(LowPoly.box(Vector3(0.08, 7.0, 0.95)), LowPoly.mat(LowPoly.CYAN, 5.0), _geo, Vector3(0, y + 3.5, gz))
+	var seam := LowPoly.mesh_instance(LowPoly.box(Vector3(0.08, 7.0, 0.95)), LowPoly.mat(LowPoly.CYAN, 7.0), _geo, Vector3(0, y + 3.5, gz))
 	seam.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	_light(Vector3(0, y + 3.0, gz + 2.0), LowPoly.CYAN, 2.5, 10.0)
+	_light(Vector3(0, y + 3.0, gz + 2.0), LowPoly.CYAN, 3.0, 12.0)
 	_block(Vector3(0, y + 0.2, gz + 2.0), Vector3(7.0, 0.4, 2.0), LowPoly.STONE_LIGHT)
 	_block(Vector3(0, y + 0.1, gz + 3.4), Vector3(8.5, 0.2, 1.2), LowPoly.STONE_LIGHT.darkened(0.1))
-	# Säulen und Kristallschalen
+	_floating_shards(Vector3(0, y + 6.0, gz + 4.0), 9, 4.5)
+	# Säulen; die Feuerschalen sind längst erloschen (später: mit einer Fackel entzünden)
 	for z in [-66.0, -76.0]:
 		for x in [-11.0, 11.0]:
 			_pillar(Vector3(x, y, z), 1.1, WALL_H + 2.0, 5)
 	for x in [-6.0, 6.0]:
-		_brazier(Vector3(x, y, -82.0))
-	_light(Vector3(0, y + 3.0, -72.0), Color(1.0, 0.6, 0.3), 1.2, 14.0)
+		_cold_brazier(Vector3(x, y, -82.0))
+	_crystal_cluster(Vector3(-14.5, y, -63.0), 1.1)
+	_mushrooms(Vector3(14.6, y, -71.0), 6, 1.0)
+	_mushrooms(Vector3(-15.0, y, -86.0), 5, 0.9)
+	_gear_pile(Vector3(-4.2, y, -70.5), 0.4, 2)
+	_gear_pile(Vector3(7.5, y, -86.0), 2.0, 1)
+	_gear_pile(Vector3(1.4, y, -88.6), -0.6, 0)
 	for i in 8:
 		_rock(Vector3(_rng.randf_range(-15, 15), y + 0.2, _rng.randf_range(-92, -61)), _rng.randf_range(0.3, 0.9), false)
-	_floating_shards(c + Vector3(0, 12, -4), 16, 13.0)
+	_stalactites(c, 15.0, 13.0, 16)
 	# Gegner
 	for p in [Vector3(-5, y + 0.1, -72), Vector3(5, y + 0.1, -74), Vector3(0, y + 0.1, -80)]:
 		_spawn_husk(Transform3D(Basis(Vector3.UP, 0.0), p))
@@ -200,7 +238,7 @@ func _spawn_player(pos: Vector3, yaw: float) -> void:
 # ==================================================================
 
 ## Boden + vier Wände. Öffnungen: Vector2(x-Mitte, Breite) an der Süd- (+Z) bzw. Nordwand (-Z).
-func _room_shell(c: Vector3, size: Vector2, south_open: Array, north_open: Array, room_name: String) -> void:
+func _room_shell(c: Vector3, size: Vector2, south_open: Array, north_open: Array, room_name: String, cave := false) -> void:
 	var hx := size.x * 0.5
 	var hz := size.y * 0.5
 	_slab_floor(Vector2(c.x - hx, c.z - hz), Vector2(c.x + hx, c.z + hz), c.y)
@@ -216,6 +254,14 @@ func _room_shell(c: Vector3, size: Vector2, south_open: Array, north_open: Array
 			_block(Vector3(x - side * 0.6, c.y + WALL_H * 0.5, z), Vector3(1.4, WALL_H, 1.4), LowPoly.STONE_DARK)
 		for i in 4:
 			_rock(Vector3(x - side * 1.0, c.y + 0.2, c.z + _rng.randf_range(-hz, hz)), _rng.randf_range(0.5, 1.1), true)
+		if cave:
+			# natürlicher Fels bricht durch das Mauerwerk
+			for i in int(size.y / 3.0):
+				var z := c.z - hz + (i + 0.5) * size.y / int(size.y / 3.0) + _rng.randf_range(-0.8, 0.8)
+				var r := _rng.randf_range(1.2, 2.2)
+				var mi := LowPoly.mesh_instance(LowPoly.rock(r, _rng.randi(), 6, 4, 0.35), LowPoly.mat(_vary(LowPoly.STONE.darkened(0.1))), _geo, Vector3(x - side * 0.2, c.y + _rng.randf_range(0.5, 9.0), z))
+				mi.scale = Vector3(0.6, _rng.randf_range(1.0, 2.0), 1.0)
+				mi.rotation.y = _rng.randf() * TAU
 	_room_trigger(c, size, room_name)
 
 
@@ -257,7 +303,7 @@ func _build_corridor(from: Vector3, to: Vector3, width: float, height: float) ->
 	for side in [-1.0, 1.0]:
 		_block(Vector3(mid.x + side * (width * 0.5 + 1.0), from.y + height * 0.5, mid.z), Vector3(2.0, height, length), LowPoly.STONE)
 	_block(Vector3(mid.x, from.y + height + 0.75, mid.z), Vector3(width + 4.0, 1.5, length), LowPoly.STONE_DARK)
-	_lamp(Vector3(mid.x, from.y + height - 1.6, mid.z))
+	_mushrooms(Vector3(mid.x + width * 0.5 - 0.5, from.y, mid.z + 1.0), 4, 0.7)
 
 
 func _room_trigger(c: Vector3, size: Vector2, room_name: String) -> void:
@@ -345,7 +391,7 @@ func _pillar(base: Vector3, radius: float, height: float, sides: int) -> void:
 	var cap := LowPoly.mesh_instance(LowPoly.prism(radius * 1.0, radius * 1.4, 0.8, sides), LowPoly.mat(col.darkened(0.15)), sb, Vector3(0, height - 0.4, 0))
 	cap.rotation.y = rot
 	# Leuchtende Rune
-	var rune := LowPoly.mesh_instance(LowPoly.box(Vector3(0.12, 0.5, 0.05)), LowPoly.mat(LowPoly.CYAN, 2.5), sb, Vector3(0, 2.2, -radius * 0.92))
+	var rune := LowPoly.mesh_instance(LowPoly.box(Vector3(0.12, 0.5, 0.05)), LowPoly.mat(LowPoly.CYAN, 1.6), sb, Vector3(0, 2.2, -radius * 0.92))
 	rune.rotation.y = 0.0
 	_geo.add_child(sb)
 
@@ -383,22 +429,6 @@ func _crystal_cluster(base: Vector3, size: float, with_light := true) -> void:
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	if with_light:
 		_light(base + Vector3(0, 1.0 * size, 0), LowPoly.CYAN, 2.2, 9.0 * size)
-
-
-func _brazier(base: Vector3) -> void:
-	_block(base + Vector3(0, 0.5, 0), Vector3(0.9, 1.0, 0.9), LowPoly.STONE_DARK)
-	var bowl := LowPoly.mesh_instance(LowPoly.prism(0.35, 1.0, 0.35, 8), LowPoly.mat(LowPoly.OCHRE.darkened(0.1)), _geo, base + Vector3(0, 1.17, 0))
-	bowl.rotation.y = PI / 8
-	_crystal_cluster(base + Vector3(0, 1.3, 0), 0.9)
-
-
-func _lamp(pos: Vector3) -> void:
-	var cage := LowPoly.mesh_instance(LowPoly.prism(0.32, 0.22, 0.7, 4), LowPoly.mat(Color(0.12, 0.16, 0.17)), _geo, pos)
-	cage.rotation.y = PI / 4
-	var core := LowPoly.mesh_instance(LowPoly.crystal(0.6, 0.12), LowPoly.mat(LowPoly.CYAN, 5.0), _geo, pos + Vector3(0, -0.3, 0))
-	core.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	LowPoly.mesh_instance(LowPoly.box(Vector3(0.06, 3.0, 0.06)), LowPoly.mat(Color(0.1, 0.12, 0.12)), _geo, pos + Vector3(0, 1.8, 0))
-	_light(pos + Vector3(0, -0.5, 0), LowPoly.CYAN, 2.5, 10.0)
 
 
 func _light(pos: Vector3, color: Color, energy: float, rng: float) -> OmniLight3D:
@@ -488,6 +518,193 @@ func _slab_floor(min_xz: Vector2, max_xz: Vector2, y: float) -> void:
 	_geo.add_child(mi)
 	# dunkle Unterlage unter den Fugen
 	LowPoly.mesh_instance(LowPoly.box(Vector3(size.x, 0.2, size.z)), LowPoly.mat(LowPoly.STONE_DARK), _geo, Vector3(cs.position.x, y - 0.2, cs.position.z))
+
+
+# ------------------------------------------------------------------
+# Lore-Bausteine
+# ------------------------------------------------------------------
+
+## Feuerschale mit flackernden Flammen (warme Bright, von den Wardens gehütet).
+func _fire_bowl(base: Vector3, size: float) -> void:
+	_block(base + Vector3(0, 0.45 * size, 0), Vector3(0.8, 0.9, 0.8) * size, LowPoly.STONE_DARK)
+	var bowl := LowPoly.mesh_instance(LowPoly.prism(0.32 * size, 0.85 * size, 0.32 * size, 8), LowPoly.mat(LowPoly.OCHRE.darkened(0.35)), _geo, base + Vector3(0, 1.05 * size, 0))
+	bowl.rotation.y = PI / 8
+	var top := base + Vector3(0, 1.2 * size, 0)
+	var flame_mat := LowPoly.mat(FIRE, 5.0)
+	var core_mat := LowPoly.mat(Color(1.0, 0.85, 0.45), 7.0)
+	var flames := Node3D.new()
+	flames.position = top
+	_geo.add_child(flames)
+	for i in 5:
+		var h := _rng.randf_range(0.35, 0.75) * size
+		var mi := LowPoly.mesh_instance(LowPoly.crystal(h, h * 0.25), flame_mat if i > 0 else core_mat, flames, Vector3(_rng.randf_range(-0.2, 0.2), 0, _rng.randf_range(-0.2, 0.2)) * size)
+		mi.rotation = Vector3(_rng.randf_range(-0.3, 0.3), _rng.randf() * TAU, _rng.randf_range(-0.3, 0.3))
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		var tw := mi.create_tween().set_loops()
+		var t := _rng.randf_range(0.12, 0.22)
+		tw.tween_property(mi, "scale", Vector3(1.0, _rng.randf_range(1.15, 1.4), 1.0), t)
+		tw.tween_property(mi, "scale", Vector3(1.0, _rng.randf_range(0.7, 0.9), 1.0), t * 1.3)
+	for i in 5:  # Glutstücke
+		LowPoly.mesh_instance(LowPoly.rock(0.07 * size, _rng.randi(), 4, 3, 0.3), LowPoly.mat(FIRE.darkened(0.3), 2.0), flames, Vector3(_rng.randf_range(-0.3, 0.3), -0.04, _rng.randf_range(-0.3, 0.3)) * size)
+	var l := _light(top + Vector3(0, 0.6 * size, 0), FIRE, 2.4 * size, 9.0 * size)
+	l.shadow_enabled = true
+	l.shadow_blur = 2.0
+	l.light_volumetric_fog_energy = 2.0
+	var lt := l.create_tween().set_loops()
+	for k in 6:
+		lt.tween_property(l, "light_energy", 2.4 * size * _rng.randf_range(0.8, 1.12), _rng.randf_range(0.07, 0.16))
+
+
+## Erloschene Feuerschale: Asche, kein Licht.
+func _cold_brazier(base: Vector3) -> void:
+	_block(base + Vector3(0, 0.5, 0), Vector3(0.9, 1.0, 0.9), LowPoly.STONE_DARK)
+	var bowl := LowPoly.mesh_instance(LowPoly.prism(0.35, 1.0, 0.35, 8), LowPoly.mat(LowPoly.OCHRE.darkened(0.55)), _geo, base + Vector3(0, 1.17, 0))
+	bowl.rotation.y = PI / 8
+	for i in 6:
+		LowPoly.mesh_instance(LowPoly.rock(0.11, _rng.randi(), 4, 3, 0.3), LowPoly.mat(Color(0.12, 0.12, 0.12)), _geo, base + Vector3(_rng.randf_range(-0.4, 0.4), 1.36, _rng.randf_range(-0.4, 0.4)))
+
+
+## Leuchtpilze: nur ein schwaches Glimmen in der Umgebung.
+func _mushrooms(base: Vector3, count: int, size: float) -> void:
+	var root := Node3D.new()
+	root.position = base
+	_geo.add_child(root)
+	var stem_mat := LowPoly.mat(Color(0.5, 0.55, 0.5))
+	var cap_mat := LowPoly.mat(SHROOM, 2.2)
+	for i in count:
+		var h := _rng.randf_range(0.12, 0.45) * size
+		var r := _rng.randf_range(0.07, 0.2) * size
+		var p := Vector3(_rng.randf_range(-0.6, 0.6), 0, _rng.randf_range(-0.6, 0.6)) * size
+		var tilt := Vector3(_rng.randf_range(-0.25, 0.25), _rng.randf() * TAU, _rng.randf_range(-0.25, 0.25))
+		var stem := LowPoly.mesh_instance(LowPoly.prism(r * 0.25, r * 0.18, h, 5), stem_mat, root, p + Vector3(0, h * 0.5, 0))
+		stem.rotation = tilt
+		var cap := LowPoly.mesh_instance(LowPoly.prism(r, r * 0.25, r * 0.55, 6), cap_mat, root, p + Vector3(0, h, 0))
+		cap.rotation = tilt
+		cap.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var l := _light(base + Vector3(0, 0.4 * size, 0), SHROOM, 0.45 * size, 3.2 * size)
+	l.light_volumetric_fog_energy = 0.5
+
+
+## Kristallader in einer Wand: schmale Splitter, die seitlich herauswachsen.
+func _crystal_vein(pos: Vector3, outward: float) -> void:
+	var root := Node3D.new()
+	root.position = pos
+	_geo.add_child(root)
+	var mat := LowPoly.mat(LowPoly.CYAN, 3.0)
+	for i in 6:
+		var h := _rng.randf_range(0.3, 0.8)
+		var mi := LowPoly.mesh_instance(LowPoly.crystal(h, h * 0.15), mat, root, Vector3(0, _rng.randf_range(-0.8, 0.8), _rng.randf_range(-1.0, 1.0)))
+		mi.rotation = Vector3(_rng.randf_range(-0.4, 0.4), 0, -outward * _rng.randf_range(0.9, 1.5))
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_light(pos + Vector3(outward * 0.6, 0, 0), LowPoly.CYAN, 0.9, 4.5)
+
+
+## Ausrüstungshaufen eines verblassten Shades (später: lootbar, mit Echo).
+## kind 0: Schwert + Mantel, 1: Helm + Schild, 2: alles + Rucksack
+func _gear_pile(base: Vector3, yaw: float, kind: int) -> void:
+	var root := Node3D.new()
+	root.position = base
+	root.rotation.y = yaw
+	_geo.add_child(root)
+	var cloth := LowPoly.mesh_instance(LowPoly.rock(0.42, _rng.randi(), 7, 3, 0.35), LowPoly.mat(_vary(CLOTH_OLD)), root, Vector3(0, 0.05, 0))
+	cloth.scale = Vector3(1.3, 0.28, 1.0)
+	var metal := LowPoly.mat(_vary(METAL_OLD), 0.0, 0.55)
+	if kind != 1:
+		var blade := LowPoly.mesh_instance(LowPoly.blade(0.78, 0.07, 0.02), metal, root, Vector3(0.25, 0.1, 0.1))
+		blade.rotation = Vector3(-PI / 2 + 0.08, 0.6, 0.1)
+	if kind != 0:
+		var helm := LowPoly.mesh_instance(LowPoly.prism(0.17, 0.06, 0.2, 6), metal, root, Vector3(-0.25, 0.16, -0.1))
+		helm.rotation = Vector3(0.5, 0.3, 0.9)
+		var sh := LowPoly.mesh_instance(LowPoly.prism(0.3, 0.27, 0.05, 7), LowPoly.mat(_vary(LowPoly.STONE_DARK)), root, Vector3(0.1, 0.12, -0.35))
+		sh.rotation = Vector3(0.25, 0, 0.12)
+	if kind == 2:
+		LowPoly.mesh_instance(LowPoly.box(Vector3(0.32, 0.24, 0.22)), LowPoly.mat(ROOTWOOD.lightened(0.15)), root, Vector3(-0.45, 0.13, 0.3)).rotation.y = 0.4
+	for n in root.find_children("*", "MeshInstance3D", true, false):
+		(n as MeshInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+
+
+## Tor aus Wurzelholz-Pfählen: Vigil liegt dahinter. Warmes Licht fällt durch die Ritzen.
+func _ward_gate(pos: Vector3, width: float) -> void:
+	var sb := StaticBody3D.new()
+	sb.collision_layer = Game.LAYER_WORLD
+	sb.position = pos
+	var cs := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(width, 6.0, 0.7)
+	cs.shape = shape
+	cs.position.y = 3.0
+	sb.add_child(cs)
+	_geo.add_child(sb)
+	var wood := LowPoly.mat(ROOTWOOD)
+	var n := int(width / 0.42)
+	for i in n:
+		var x := -width * 0.5 + (i + 0.5) * width / n
+		var h := _rng.randf_range(4.2, 5.4)
+		var r := _rng.randf_range(0.13, 0.18)
+		var stake := LowPoly.mesh_instance(LowPoly.prism(r, r * 0.85, h, 6), LowPoly.mat(_vary(ROOTWOOD)), sb, Vector3(x, h * 0.5, 0))
+		stake.rotation = Vector3(_rng.randf_range(-0.04, 0.04), _rng.randf() * TAU, _rng.randf_range(-0.04, 0.04))
+		var tip := LowPoly.mesh_instance(LowPoly.prism(r * 0.85, 0.01, 0.45, 6), wood, sb, Vector3(x, h + 0.22, 0))
+		tip.rotation.y = stake.rotation.y
+	for y in [1.1, 3.4]:
+		var beam := LowPoly.mesh_instance(LowPoly.box(Vector3(width + 0.6, 0.22, 0.24)), LowPoly.mat(ROOTWOOD.lightened(0.08)), sb, Vector3(0, y, -0.28))
+		beam.rotation.z = _rng.randf_range(-0.05, 0.05)
+	# dahinter: ein Stück Boden und das warme Licht von Vigil
+	_slab_floor(Vector2(pos.x - width * 0.5, pos.z), Vector2(pos.x + width * 0.5, pos.z + 6.0), pos.y)
+	var l := _light(pos + Vector3(0, 3.0, 3.5), FIRE.lerp(Color(1, 0.8, 0.6), 0.3), 2.2, 9.0)
+	l.shadow_enabled = true
+	l.light_volumetric_fog_energy = 2.5
+
+
+## Waffenständer der Wardens mit alten Klingen.
+func _weapon_rack(base: Vector3, yaw: float) -> void:
+	var root := Node3D.new()
+	root.position = base
+	root.rotation.y = yaw
+	_geo.add_child(root)
+	var wood := LowPoly.mat(ROOTWOOD.lightened(0.05))
+	for x in [-0.9, 0.9]:
+		LowPoly.mesh_instance(LowPoly.prism(0.08, 0.07, 1.3, 5), wood, root, Vector3(x, 0.65, 0))
+	LowPoly.mesh_instance(LowPoly.box(Vector3(2.0, 0.1, 0.12)), wood, root, Vector3(0, 1.2, 0))
+	LowPoly.mesh_instance(LowPoly.box(Vector3(2.0, 0.08, 0.3)), wood, root, Vector3(0, 0.25, 0))
+	var metal := LowPoly.mat(METAL_OLD, 0.0, 0.5)
+	for i in 4:
+		var b := LowPoly.mesh_instance(LowPoly.blade(0.78, 0.07, 0.02), metal, root, Vector3(-0.6 + i * 0.4, 0.3, 0.05))
+		b.rotation = Vector3(-PI / 2 - 0.12, 0, _rng.randf_range(-0.05, 0.05))
+	var col := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(2.1, 1.3, 0.5)
+	col.shape = shape
+	col.position = Vector3(0, 0.65, 0)
+	var sb := StaticBody3D.new()
+	sb.collision_layer = Game.LAYER_WORLD
+	sb.add_child(col)
+	root.add_child(sb)
+
+
+## Herabhängende Wurzeln an der Südwand.
+func _hanging_roots(center: Vector3, spread: float, count: int) -> void:
+	var mat := LowPoly.mat(ROOTWOOD.lightened(0.05))
+	for i in count:
+		var top := center + Vector3(_rng.randf_range(-spread, spread), WALL_H - 1.0, _rng.randf_range(-0.4, 0.3))
+		var segs := _rng.randi_range(3, 5)
+		var p := top
+		var r := _rng.randf_range(0.08, 0.14)
+		for k in segs:
+			var l := _rng.randf_range(1.2, 2.4)
+			var dir := Vector3(_rng.randf_range(-0.3, 0.3), -1.0, _rng.randf_range(-0.35, 0.1)).normalized()
+			var mi := LowPoly.mesh_instance(LowPoly.prism(r * 0.75, r, l, 5), mat, _geo, p + dir * l * 0.5)
+			mi.basis = Basis(Quaternion(Vector3.UP, -dir))
+			p += dir * l
+			r *= 0.75
+
+
+## Tropfsteine hoch oben, an der Grenze dessen, was das Licht erreicht.
+func _stalactites(center: Vector3, spread: float, height: float, count: int) -> void:
+	for i in count:
+		var h := _rng.randf_range(1.0, 3.5)
+		var p := center + Vector3(_rng.randf_range(-spread, spread), height + _rng.randf_range(0.0, 3.0), _rng.randf_range(-spread, spread))
+		var mi := LowPoly.mesh_instance(LowPoly.crystal(h, h * 0.16), LowPoly.mat(_vary(LowPoly.STONE)), _geo, p)
+		mi.rotation = Vector3(PI + _rng.randf_range(-0.1, 0.1), _rng.randf() * TAU, 0)
 
 
 func _vary(c: Color) -> Color:
