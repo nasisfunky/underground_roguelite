@@ -84,7 +84,7 @@ func _build_environment() -> void:
 
 func _build_room_hall() -> void:
 	var c := Vector3(0, 0, 0)
-	_room_shell(c, Vector2(26, 26), [Vector2(0, 6)], [], "Hall of Pillars")
+	_room_shell(c, Vector2(26, 26), [], [Vector2(0, 6)], "Hall of Pillars")
 	# Monumentale Säulen
 	for z in [6.0, -1.0, -8.0]:
 		for x in [-6.5, 6.5]:
@@ -145,7 +145,7 @@ func _build_ramp_corridor() -> void:
 func _build_room_sealed() -> void:
 	var y := -3.0
 	var c := Vector3(0, y, -76)
-	_room_shell(c, Vector2(34, 34), [], [Vector2(0, 6)], "Sealed Hall")
+	_room_shell(c, Vector2(34, 34), [Vector2(0, 6)], [], "Sealed Hall")
 	# Versiegeltes Tor in der Nordwand: zwei schräge Strebepfeiler, schwere Torflügel,
 	# ein schmaler leuchtender Spalt dazwischen (Platzhalter für den Weg tiefer hinab).
 	var gz := -92.2

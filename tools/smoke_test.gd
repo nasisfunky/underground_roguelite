@@ -119,6 +119,17 @@ func _ready() -> void:
 	Input.action_release("block")
 	_check("Blocken hält Schaden ab (nur Ausdauer)", p.health >= hp0 - 0.1 and blocked[0] == 1, "HP %.0f -> %.0f" % [hp0, p.health])
 
+	# --- Durchgänge zwischen den Räumen sind begehbar ---
+	for seg in [["Durchgang Halle -> Training Yard", Vector3(1.8, 0.1, -9.0), -17.0],
+			["Durchgang Training Yard -> Rampe", Vector3(1.8, 0.1, -42.0), -49.0],
+			["Durchgang Rampe -> Sealed Hall", Vector3(1.8, -1.5, -55.0), -61.0]]:
+		_teleport(seg[1], 0.0)
+		await _phys(5)
+		Input.action_press("move_forward")
+		await _phys(100)
+		Input.action_release("move_forward")
+		_check(seg[0], p.global_position.z < seg[2], "z %.1f" % p.global_position.z)
+
 	print("\n=== SMOKE TEST: %s (%d Fehler) ===" % ["OK" if fails == 0 else "FEHLER", fails])
 	get_tree().quit(fails)
 
