@@ -122,11 +122,11 @@ func _ready() -> void:
 	var col := CollisionShape3D.new()
 	var cap := CapsuleShape3D.new()
 	cap.radius = 0.32
-	cap.height = 1.75
+	cap.height = 1.55
 	col.shape = cap
-	col.position.y = 0.875
+	col.position.y = 0.775
 	add_child(col)
-	add_child(Hurtbox.new(self, Game.LAYER_PLAYER_HURTBOX, cap, Vector3(0, 0.875, 0)))
+	add_child(Hurtbox.new(self, Game.LAYER_PLAYER_HURTBOX, cap, Vector3(0, 0.775, 0)))
 
 	body = ShadowBody.new()
 	body.name = "Body"

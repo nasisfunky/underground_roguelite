@@ -44,7 +44,7 @@ func _ready() -> void:
 	# Jede Pose einzeln aus zwei Blickwinkeln
 	for i in bodies.size():
 		var b: Node3D = bodies[i]
-		for v in [["a", Vector3(-0.9, 1.3, -1.6)], ["b", Vector3(1.9, 1.1, 0.2)]]:
+		for v in [["a", Vector3(-0.8, 1.1, -1.5)], ["b", Vector3(1.7, 0.95, 0.2)]]:
 			for o in bodies:
 				o.visible = o == b
 			cam.position = b.position + v[1]

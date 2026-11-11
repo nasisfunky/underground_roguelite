@@ -10,7 +10,7 @@ extends Node3D
 @export var min_zoom := 2.2
 @export var max_zoom := 13.0
 @export var zoom_step := 1.1
-@export var pivot_height := 1.55
+@export var pivot_height := 1.3
 @export var follow_sharpness_xz := 22.0
 @export var follow_sharpness_y := 9.0
 ## Nur im klassischen Modus: Kamera schwenkt beim Laufen langsam hinter den Charakter.

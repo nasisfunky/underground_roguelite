@@ -1,8 +1,19 @@
 # Underground Roguelite – Solo-Prototyp
 
 Low-Poly Action-Roguelite in Godot 4.7. Dieser Stand ist ein Testlevel mit drei Räumen,
-um Steuerung, Kamera und Kampfgefühl auszuprobieren. Alles Grafische ist prozedural aus
-kantigen Grundformen gebaut (keine externen Assets).
+um Steuerung, Kamera und Kampfgefühl auszuprobieren. Die Figuren (Shades, Trainingspuppe)
+sind in Blender gebaut, die Level-Geometrie entsteht noch prozedural im Code.
+
+## Modelle (Blender)
+
+- Quelle: `tools/blender/build_shade.py` baut alle Teile per Skript.
+- Ergebnis: `art/blender/shade_parts.blend` zum Ansehen und Bearbeiten und
+  `assets/models/*.glb` für Godot.
+- Jedes Körperteil ist ein eigenes Objekt mit dem Gelenk als Ursprung. Godot animiert die Teile
+  prozedural (`scripts/player/shadow_body.gd`).
+- Materialnamen wie `Cloth`, `Trim`, `Scarf` und `Eye` werden in Godot je nach Figur umgefärbt.
+- Wer in der .blend etwas von Hand ändert, exportiert danach die Collection „Shade“ als
+  `assets/models/shade_parts.glb` (glTF, +Y oben). Objektnamen nicht ändern.
 Alle Texte im Spiel sind Englisch, Code-Kommentare und Doku Deutsch.
 
 ## Starten

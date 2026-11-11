@@ -25,26 +25,19 @@ func _build() -> void:
 	_flash_mat.albedo_color = Color(1, 1, 1, 0.7)
 	_flash_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	_flash_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-	var wood := LowPoly.mat(Color(0.32, 0.22, 0.14))
-	var straw := LowPoly.mat(Color(0.48, 0.36, 0.18))
-	var cloth := LowPoly.mat(Color(0.45, 0.18, 0.14))
+	var parts := ModelParts.load_parts("res://assets/models/dummy_parts.glb")
 	# Sockel bleibt fest, der Rest wackelt
-	_m(LowPoly.prism(0.42, 0.32, 0.25, 6), LowPoly.mat(LowPoly.STONE), self, Vector3(0, 0.12, 0))
+	var base := MeshInstance3D.new()
+	base.mesh = parts.get("DummyBase")
+	add_child(base)
+	_meshes.append(base)
 	_visual = Node3D.new()
 	_visual.position.y = 0.25
 	add_child(_visual)
-	_m(LowPoly.prism(0.07, 0.06, 1.7, 5), wood, _visual, Vector3(0, 0.85, 0))
-	var arm := _m(LowPoly.prism(0.05, 0.05, 1.2, 5), wood, _visual, Vector3(0, 1.35, 0))
-	arm.rotation.z = PI / 2
-	var torso := _m(LowPoly.rock(0.3, 11, 6, 4, 0.18), straw, _visual, Vector3(0, 1.25, 0))
-	torso.scale = Vector3(1.0, 1.5, 0.75)
-	_m(LowPoly.prism(0.33, 0.30, 0.18, 6), cloth, _visual, Vector3(0, 1.05, 0)).scale = Vector3(1, 1, 0.8)
-	var head := _m(LowPoly.rock(0.19, 4, 6, 4, 0.2), straw, _visual, Vector3(0, 1.85, 0))
-	head.scale = Vector3(1, 1.15, 1)
-	# aufgemalte Augen
-	for side in [-1.0, 1.0]:
-		var e := _m(LowPoly.box(Vector3(0.06, 0.02, 0.02)), LowPoly.mat(Color(0.1, 0.05, 0.03)), _visual, Vector3(0.06 * side, 1.88, -0.18))
-		e.rotation.z = 0.3 * side
+	var body := MeshInstance3D.new()
+	body.mesh = parts.get("DummyBody")
+	_visual.add_child(body)
+	_meshes.append(body)
 
 
 func _m(mesh: Mesh, material: Material, parent: Node, pos: Vector3) -> MeshInstance3D:

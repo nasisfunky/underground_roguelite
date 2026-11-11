@@ -17,6 +17,7 @@ func _ready() -> void:
 		["04_ramp", Vector3(0, 0.1, -44), 0.0, -0.2, 6.0],
 		["05_pyramid", Vector3(0, -2.9, -62), 0.0, -0.12, 7.0],
 		["06_closeup", Vector3(0, 0.1, -30), 2.6, -0.15, 3.2],
+		["07_husk_close", Vector3(-3, -2.9, -69), 0.0, -0.1, 3.5],
 	]
 	for s in shots:
 		p.global_position = s[1]

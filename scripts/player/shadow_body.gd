@@ -19,7 +19,7 @@ var trim_color := Color(0.42, 0.62, 0.60)
 var eye_color := LowPoly.EYE_YELLOW
 var headgear: Headgear = Headgear.HOOD
 var has_shield := true
-var weapon_length := 0.95
+var weapon_length := 0.78
 
 # --- Eingänge vom Controller (pro Tick setzen) ---
 var speed := 0.0  ## horizontale Geschwindigkeit in m/s
@@ -52,12 +52,19 @@ var tabard_front: Node3D
 var tabard_back: Node3D
 var eye_mat: StandardMaterial3D
 
-const UPPER_ARM := 0.30
-const LOWER_ARM := 0.36
-const THIGH := 0.44
-const SHIN := 0.53
-const SHOULDER_L := Vector3(-0.19, 0.47, 0.02)
-const SHOULDER_R := Vector3(0.19, 0.47, 0.02)
+# Proportionen (müssen zu tools/blender/build_shade.py passen)
+const UPPER_ARM := 0.24
+const LOWER_ARM := 0.28
+const THIGH := 0.32
+const SHIN := 0.36
+const RIG_Y := 0.45  ## Drehpunkt für Rolle/Sturz
+const HIPS_Y := 0.21  ## Hüfte relativ zum Rig -> 0,66 m über dem Boden
+const CHEST_Y := 0.04
+const HEAD_Y := 0.62
+const SHOULDER_L := Vector3(-0.21, 0.43, 0.02)
+const SHOULDER_R := Vector3(0.21, 0.43, 0.02)
+## Posen wurden für die alten, längeren Arme geschrieben -> hier auf die neue Reichweite skaliert
+const POSE_SCALE := 0.8
 
 var _phase := 0.0
 var _time := 0.0
@@ -73,6 +80,10 @@ var _lean := 0.0
 var _hips_drop := 0.0
 var _lower_yaw := 0.0
 var _trail: SwordTrail
+var _overrides: Dictionary = {}
+
+
+const PARTS_PATH := "res://assets/models/shade_parts.glb"
 
 
 func build() -> void:
@@ -82,159 +93,107 @@ func build() -> void:
 	_flash_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	_flash_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
 
-	var skin := LowPoly.mat(LowPoly.SHADOW_SKIN, 0.0, 0.6)
-	var cloth := LowPoly.mat(cloth_color)
-	var scarf := LowPoly.mat(scarf_color)
-	var trim := LowPoly.mat(trim_color)
+	var parts := ModelParts.load_parts(PARTS_PATH)
 	eye_mat = LowPoly.mat(eye_color, 2.6).duplicate()
+	# Materialnamen aus Blender -> Farben dieser Figur
+	_overrides = {
+		"Cloth": LowPoly.mat(cloth_color),
+		"ClothDark": LowPoly.mat(cloth_color.darkened(0.45)),
+		"Trim": LowPoly.mat(trim_color),
+		"Scarf": LowPoly.mat(scarf_color),
+		"Eye": eye_mat,
+		"Gem": LowPoly.mat(LowPoly.CYAN, 3.0),
+		"Void": LowPoly.unshaded(Color(0.008, 0.008, 0.012)),
+	}
 
 	rig = Node3D.new()
 	rig.name = "Rig"
-	rig.position.y = 0.62
+	rig.position.y = RIG_Y
 	add_child(rig)
 
 	hips = Node3D.new()
-	hips.position.y = 0.35
+	hips.position.y = HIPS_Y
 	rig.add_child(hips)
+	_part(parts, "Pelvis", hips)
 
-	# Becken + Gürtel
-	_add(LowPoly.prism(0.12, 0.13, 0.16, 5), skin, hips, Vector3(0, 0.02, 0))
-	var belt := _add(LowPoly.prism(0.155, 0.15, 0.08, 6), LowPoly.mat(Color(0.06, 0.06, 0.07)), hips, Vector3(0, 0.07, 0))
-	belt.scale = Vector3(1, 1, 0.8)
-
-	# Stoffbahnen vorne/hinten (Tabard) – schwingen mit
 	tabard_front = Node3D.new()
-	tabard_front.position = Vector3(0, 0.08, -0.11)
+	tabard_front.position = Vector3(0, 0.08, -0.12)
 	hips.add_child(tabard_front)
-	_add(LowPoly.box(Vector3(0.17, 0.5, 0.025)), cloth, tabard_front, Vector3(0, -0.28, 0))
-	_add(LowPoly.box(Vector3(0.18, 0.04, 0.03)), trim, tabard_front, Vector3(0, -0.49, 0))
+	_part(parts, "TabardFront", tabard_front)
 	tabard_back = Node3D.new()
-	tabard_back.position = Vector3(0, 0.08, 0.11)
+	tabard_back.position = Vector3(0, 0.08, 0.12)
 	hips.add_child(tabard_back)
-	_add(LowPoly.box(Vector3(0.26, 0.62, 0.025)), cloth, tabard_back, Vector3(0, -0.31, 0))
+	_part(parts, "TabardBack", tabard_back)
 
-	# Beine: dünn, laufen in eine Spitze aus
-	hip_l = _make_leg(Vector3(-0.085, 0, 0), skin, trim)
-	hip_r = _make_leg(Vector3(0.085, 0, 0), skin, trim)
-	knee_l = hip_l.get_child(hip_l.get_child_count() - 1)
-	knee_r = hip_r.get_child(hip_r.get_child_count() - 1)
+	hip_l = _joint(hips, Vector3(-0.085, 0, 0))
+	_part(parts, "ThighL", hip_l)
+	knee_l = _joint(hip_l, Vector3(0, -THIGH, 0))
+	_part(parts, "ShinL", knee_l)
+	hip_r = _joint(hips, Vector3(0.085, 0, 0))
+	_part(parts, "ThighR", hip_r)
+	knee_r = _joint(hip_r, Vector3(0, -THIGH, 0))
+	_part(parts, "ShinR", knee_r)
 
-	# Oberkörper
-	chest = Node3D.new()
-	chest.position.y = 0.06
-	hips.add_child(chest)
-	var torso := _add(LowPoly.prism(0.10, 0.18, 0.50, 5), skin, chest, Vector3(0, 0.26, 0))
-	torso.scale = Vector3(1, 1, 0.72)
-	# Umhang über den Schultern
-	var mantle := _add(LowPoly.prism(0.25, 0.14, 0.22, 6), cloth, chest, Vector3(0, 0.42, 0.01))
-	mantle.scale = Vector3(1, 1, 0.8)
-	_add(LowPoly.prism(0.255, 0.245, 0.035, 6), trim, chest, Vector3(0, 0.31, 0.01)).scale = Vector3(1, 1, 0.8)
-	# Schal (dick gewickelt, verdeckt den unteren Teil des Gesichts)
-	var s1 := _add(LowPoly.prism(0.20, 0.16, 0.16, 6), scarf, chest, Vector3(0, 0.56, -0.01))
-	s1.rotation.x = 0.12
-	var s2 := _add(LowPoly.prism(0.17, 0.15, 0.10, 6), scarf, chest, Vector3(0.01, 0.66, -0.02))
-	s2.rotation = Vector3(-0.15, 0.4, 0.08)
-	scarf_tail = Node3D.new()
-	scarf_tail.position = Vector3(0.06, 0.6, 0.13)
-	chest.add_child(scarf_tail)
-	_add(LowPoly.box(Vector3(0.09, 0.42, 0.025)), scarf, scarf_tail, Vector3(0, -0.2, 0))
+	chest = _joint(hips, Vector3(0, CHEST_Y, 0))
+	_part(parts, "Torso", chest)
+	_part(parts, "Mantle", chest)
+	_part(parts, "Scarf", chest)
+	scarf_tail = _joint(chest, Vector3(0.08, 0.52, 0.17))
+	_part(parts, "ScarfTail", scarf_tail)
 
-	# Kopf
-	head = Node3D.new()
-	head.position.y = 0.74
-	chest.add_child(head)
-	_add(LowPoly.rock(0.13, 7, 6, 4, 0.05), skin, head)
-	_build_headgear(cloth, trim, skin)
-	# Dunkles "Gesicht" und gelbe Augen
-	var face := _add(LowPoly.box(Vector3(0.19, 0.12, 0.02)), LowPoly.unshaded(Color(0.01, 0.01, 0.015)), head, Vector3(0, 0.0, -0.13))
-	face.rotation.x = -0.1
-	for side in [-1.0, 1.0]:
-		var eye := _add(LowPoly.box(Vector3(0.062, 0.022, 0.012)), eye_mat, head, Vector3(0.048 * side, 0.005, -0.145))
-		eye.rotation.z = 0.32 * side  # innen tiefer -> entschlossener Blick
+	head = _joint(chest, Vector3(0, HEAD_Y, 0))
+	_part(parts, "Head", head)
+	_part(parts, "Eyes", head)
+	match headgear:
+		Headgear.HOOD:
+			_part(parts, "Hood", head)
+		Headgear.HORNED_HELM:
+			_part(parts, "HornedHelm", head)
+		Headgear.WIDE_HAT:
+			_part(parts, "WideHat", head).position.y = 0.08
 	var glow := OmniLight3D.new()
 	glow.light_color = eye_color
 	glow.light_energy = 0.35
 	glow.omni_range = 0.7
-	glow.position = Vector3(0, 0, -0.3)
+	glow.position = Vector3(0, 0, -0.35)
 	head.add_child(glow)
 
-	# Arme (werden per IK gesetzt, hängen direkt an diesem Knoten)
-	arm_up_l = _make_segment(UPPER_ARM, 0.042, 0.034, skin)
-	arm_lo_l = _make_segment(LOWER_ARM, 0.034, 0.0, skin)
-	arm_up_r = _make_segment(UPPER_ARM, 0.042, 0.034, skin)
-	arm_lo_r = _make_segment(LOWER_ARM, 0.034, 0.0, skin)
-	# Armwickel
-	for seg in [arm_lo_l, arm_lo_r]:
-		_add(LowPoly.prism(0.045, 0.042, 0.1, 5), trim, seg, Vector3(0, -0.1, 0))
+	# Arme hängen direkt an diesem Knoten und werden per IK gesetzt
+	arm_up_l = _joint(self, Vector3.ZERO)
+	_part(parts, "UpperArmL", arm_up_l)
+	arm_lo_l = _joint(self, Vector3.ZERO)
+	_part(parts, "ForearmL", arm_lo_l)
+	arm_up_r = _joint(self, Vector3.ZERO)
+	_part(parts, "UpperArmR", arm_up_r)
+	arm_lo_r = _joint(self, Vector3.ZERO)
+	_part(parts, "ForearmR", arm_lo_r)
 
-	# Schwert
-	sword = Node3D.new()
-	chest.add_child(sword)
-	var steel := LowPoly.mat(Color(0.62, 0.70, 0.70), 0.0, 0.35)
-	_add(LowPoly.blade(weapon_length, 0.075, 0.02), steel, sword)
-	_add(LowPoly.box(Vector3(0.03, 0.2, 0.035)), LowPoly.mat(Color(0.12, 0.13, 0.14)), sword, Vector3(0, 0, -0.04))
-	_add(LowPoly.prism(0.018, 0.016, 0.16, 5), LowPoly.mat(Color(0.18, 0.1, 0.06)), sword, Vector3(0, 0, 0.06)).rotation.x = PI / 2
-	_add(LowPoly.rock(0.03, 3, 5, 3, 0.1), trim, sword, Vector3(0, 0, 0.15))
-
-	# Schild
+	sword = _joint(chest, Vector3.ZERO)
+	_part(parts, "Sword", sword).scale = Vector3.ONE * (weapon_length / 0.78)
 	if has_shield:
-		shield = Node3D.new()
-		chest.add_child(shield)
-		var disc := _add(LowPoly.prism(0.26, 0.26, 0.05, 8), LowPoly.mat(Color(0.22, 0.36, 0.36), 0.0, 0.5), shield, Vector3(0, 0, -0.03))
-		disc.rotation.x = PI / 2
-		var ring := _add(LowPoly.prism(0.19, 0.19, 0.055, 8), LowPoly.mat(Color(0.48, 0.70, 0.68)), shield, Vector3(0, 0, -0.035))
-		ring.rotation.x = PI / 2
-		var boss := _add(LowPoly.prism(0.11, 0.11, 0.06, 8), LowPoly.mat(Color(0.18, 0.28, 0.29)), shield, Vector3(0, 0, -0.04))
-		boss.rotation.x = PI / 2
-		var gem := _add(LowPoly.prism(0.05, 0.0, 0.05, 4), LowPoly.mat(LowPoly.CYAN, 3.0), shield, Vector3(0, 0, -0.08))
-		gem.rotation.x = -PI / 2
+		shield = _joint(chest, Vector3.ZERO)
+		_part(parts, "Shield", shield)
 
 	_trail = SwordTrail.new()
 	add_child(_trail)
 
 
-func _build_headgear(cloth: Material, trim: Material, skin: Material) -> void:
-	match headgear:
-		Headgear.HOOD:
-			var hood := _add(LowPoly.prism(0.215, 0.0, 0.40, 5), cloth, head, Vector3(0, 0.08, 0.04))
-			hood.rotation = Vector3(-0.32, PI / 5.0, 0)  # Spitze leicht nach hinten
-			var rim := _add(LowPoly.prism(0.225, 0.2, 0.05, 5), trim, head, Vector3(0, -0.10, 0.03))
-			rim.rotation.y = PI / 5.0
-		Headgear.HORNED_HELM:
-			var helm := _add(LowPoly.prism(0.17, 0.12, 0.26, 6), LowPoly.mat(Color(0.30, 0.25, 0.20), 0.0, 0.5), head, Vector3(0, 0.08, 0.02))
-			helm.rotation.y = PI / 6.0
-			for side in [-1.0, 1.0]:
-				var horn := _add(LowPoly.prism(0.045, 0.0, 0.32, 4), LowPoly.mat(Color(0.75, 0.68, 0.55)), head, Vector3(0.17 * side, 0.18, 0.02))
-				horn.rotation = Vector3(0.0, 0.0, -0.9 * side)
-		Headgear.WIDE_HAT:
-			_add(LowPoly.prism(0.42, 0.0, 0.22, 8), cloth, head, Vector3(0, 0.16, 0))
-			_add(LowPoly.prism(0.15, 0.15, 0.12, 6), skin, head, Vector3(0, 0.04, 0))
+func _joint(parent: Node, pos: Vector3) -> Node3D:
+	var n := Node3D.new()
+	n.position = pos
+	parent.add_child(n)
+	return n
 
 
-func _make_leg(pos: Vector3, skin: Material, trim: Material) -> Node3D:
-	var hip := Node3D.new()
-	hip.position = pos
-	hips.add_child(hip)
-	_add(LowPoly.prism(0.035, 0.058, THIGH, 4), skin, hip, Vector3(0, -THIGH * 0.5, 0))
-	var knee := Node3D.new()
-	knee.position.y = -THIGH
-	hip.add_child(knee)
-	_add(LowPoly.prism(0.0, 0.04, SHIN, 4), skin, knee, Vector3(0, -SHIN * 0.5, 0))
-	_add(LowPoly.prism(0.05, 0.046, 0.12, 5), trim, knee, Vector3(0, -0.12, 0))
-	# Knie-Knoten als letztes Kind, damit build() ihn findet
-	hip.move_child(knee, hip.get_child_count() - 1)
-	return hip
-
-
-func _make_segment(length: float, r_top: float, r_bottom: float, material: Material) -> Node3D:
-	var seg := Node3D.new()
-	add_child(seg)
-	_add(LowPoly.prism(r_bottom, r_top, length, 4), material, seg, Vector3(0, -length * 0.5, 0))
-	return seg
-
-
-func _add(mesh: Mesh, material: Material, parent: Node, pos := Vector3.ZERO) -> MeshInstance3D:
-	var mi := LowPoly.mesh_instance(mesh, material, parent, pos)
+func _part(parts: Dictionary, part_name: String, parent: Node) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	mi.name = part_name
+	mi.mesh = parts.get(part_name)
+	if mi.mesh == null:
+		push_warning("Teil fehlt im Modell: " + part_name)
+	else:
+		ModelParts.apply_overrides(mi, _overrides)
+	parent.add_child(mi)
 	_meshes.append(mi)
 	return mi
 
@@ -275,7 +234,7 @@ func tick(delta: float) -> void:
 	# --- Schrittzyklus ---
 	var backwards := local_move.y < -0.1
 	var dir_sign := -1.0 if backwards else 1.0
-	_phase += delta * speed / 1.75 * TAU * dir_sign
+	_phase += delta * speed / 1.35 * TAU * dir_sign
 	# Unterkörper dreht sich in Laufrichtung (Seitwärtslaufen)
 	var target_lower := 0.0
 	if moving and local_move.length() > 0.1:
@@ -291,7 +250,7 @@ func tick(delta: float) -> void:
 	var lean := 0.0
 	var twist := 0.0
 	var rig_rot := Vector3.ZERO
-	var rig_y := 0.62
+	var rig_y := RIG_Y
 	var hips_drop := 0.0
 
 	if on_floor:
@@ -347,7 +306,7 @@ func tick(delta: float) -> void:
 		&"roll":
 			var e := _ease_roll(action_t)
 			rig_rot.x = -TAU * e
-			rig_y = 0.62 - 0.32 * sin(action_t * PI)
+			rig_y = RIG_Y - 0.22 * sin(action_t * PI)
 			hl.x = 1.5
 			hr.x = 1.3
 			kl = -2.3
@@ -378,7 +337,7 @@ func tick(delta: float) -> void:
 		&"dead":
 			var w := clampf(action_t * 2.2, 0.0, 1.0)
 			rig_rot.x = 1.45 * (1.0 - pow(1.0 - w, 3.0))
-			rig_y = 0.62 - 0.45 * w
+			rig_y = RIG_Y - 0.32 * w
 			kl = -0.6
 			kr = -0.3
 			grip = Vector3(0.45, -0.3, 0.1)
@@ -400,6 +359,8 @@ func tick(delta: float) -> void:
 			kr -= 0.2 * b
 
 	# --- anwenden (mit Glättung) ---
+	grip = _scale_pose(grip)
+	sh_pos = _scale_pose(sh_pos)
 	var kf := 1.0 - exp(-anim_rate * delta)
 	var kb := 1.0 - exp(-18.0 * delta)
 	_sw_grip = _sw_grip.lerp(grip, kf)
@@ -411,7 +372,7 @@ func tick(delta: float) -> void:
 
 	rig.rotation = rig_rot if action == &"roll" else rig.rotation.lerp(rig_rot, kb)
 	rig.position.y = lerpf(rig.position.y, rig_y, 1.0 - exp(-25.0 * delta))
-	hips.position.y = 0.35 + hips_y - _hips_drop
+	hips.position.y = HIPS_Y + hips_y - _hips_drop
 	hips.rotation.y = _lower_yaw
 	chest.rotation = Vector3(_lean, _twist - _lower_yaw, 0)
 	hip_l.rotation = hip_l.rotation.lerp(hl, kb)
@@ -441,6 +402,10 @@ func tick(delta: float) -> void:
 	if _trail.emitting or _trail.has_points():
 		var pts := sword_points()
 		_trail.push(pts[0], pts[1], delta)
+
+
+func _scale_pose(v: Vector3) -> Vector3:
+	return Vector3(v.x * 0.9, 0.43 + (v.y - 0.47) * POSE_SCALE, v.z * POSE_SCALE)
 
 
 ## Basis mit z = Vorwärts-Achse (lokal -Z zeigt dann in Gegenrichtung von z) und x so nah wie möglich an hint.

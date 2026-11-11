@@ -33,7 +33,7 @@ func _ready() -> void:
 	display_name = "Hollow Shade"
 	max_health = 70.0
 	max_poise = 22.0
-	target_height = 2.25
+	target_height = 1.95
 	super._ready()
 	facing_yaw = rotation.y
 	rotation = Vector3.ZERO
