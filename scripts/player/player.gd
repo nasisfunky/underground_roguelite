@@ -350,7 +350,7 @@ func _state_move(delta: float) -> void:
 	if _blocking:
 		_block_t += delta
 		_face_target_soft(delta, 10.0)
-	elif dir.length_squared() < 0.01 and target and input and not input.rmb_held:
+	elif dir.length_squared() < 0.01 and target and input and not input.rmb_held and target.global_position.distance_to(global_position) < melee_range + 3.0:
 		# Im Stand dreht sich der Charakter von selbst zum Ziel (Auto-Angriff braucht Blickrichtung)
 		_face_target_soft(delta, 8.0)
 
@@ -730,7 +730,7 @@ func set_target(t: Node3D) -> void:
 
 
 func _target_valid(t: Node3D) -> bool:
-	return t != null and is_instance_valid(t) and not t.is_dead() and t.global_position.distance_to(global_position) < 30.0
+	return t != null and is_instance_valid(t) and not t.is_dead() and t.global_position.distance_to(global_position) < 25.0
 
 
 func _update_target(delta: float) -> void:
