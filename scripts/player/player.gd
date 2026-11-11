@@ -58,7 +58,7 @@ enum State { MOVE, ROLL, ABILITY, STAGGER, DEAD }
 @export_group("Auto-Angriff")
 @export var swing_interval := 1.35  # Waffengeschwindigkeit
 @export var swing_duration := 0.95
-@export var swing_hit_at := 0.42  # normierte Zeit des Treffers
+@export var swing_hit_at := 0.44  # normierte Zeit des Treffers
 @export var melee_range := 2.4
 @export var swing_damage := 9.0
 @export var swing_arc_deg := 80.0
@@ -815,6 +815,9 @@ func _update_body(delta: float) -> void:
 	body.on_floor = is_on_floor() or state == State.ROLL
 	body.vertical_velocity = velocity.y
 	body.block_amount = move_toward(body.block_amount, 1.0 if _blocking else 0.0, delta * 9.0)
+	# Kampfhaltung, sobald ein anvisiertes Ziel in Reichweite ist
+	var engaged: bool = target != null and is_instance_valid(target) and not target.is_dead() and target.global_position.distance_to(global_position) < melee_range + 3.5
+	body.combat = 1.0 if engaged and state != State.DEAD else 0.0
 	body.look_target = target.target_point() if target and is_instance_valid(target) and not target.is_dead() and target.global_position.distance_to(global_position) < 12.0 else null
 	match state:
 		State.ROLL:

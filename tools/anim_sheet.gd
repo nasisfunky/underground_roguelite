@@ -30,8 +30,8 @@ func _ready() -> void:
 	b.build()
 	var cam := Camera3D.new()
 	root.add_child(cam)
-	cam.position = Vector3(2.2, 0.9, -1.2)
-	cam.look_at(Vector3(0, 0.6, -0.4))
+	cam.position = Vector3(1.3, 1.3, -2.1)
+	cam.look_at(Vector3(0, 0.95, -0.2))
 	var frame := 0
 	var t := 0.0
 	var spd := 0.0
@@ -39,6 +39,7 @@ func _ready() -> void:
 		var target_spd := 0.0
 		b.action = &""
 		b.block_amount = 0.0
+		b.combat = 1.0 if t > 2.0 and t < 4.35 else 0.0
 		if t > 0.5 and t < 2.0:
 			target_spd = 4.8
 		spd = move_toward(spd, target_spd, 20.0 / FPS)

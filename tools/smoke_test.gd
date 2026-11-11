@@ -135,6 +135,15 @@ func _ready() -> void:
 				lowest = minf(lowest, (xf * v).y)
 	_check("Rolle: Körper bleibt am Boden (max. 10 cm Eintauchen)", lowest > floor_y - 0.1, "%.2f m unter Boden" % (floor_y - lowest))
 
+	# --- Schwünge: Klinge bleibt außerhalb des eigenen Körpers ---
+	var dummy_body := ShadowBody.new()
+	add_child(dummy_body)
+	dummy_body.build()
+	for idx in [0, 1, 2]:
+		var worst := _blade_through_body(dummy_body, idx)
+		_check("Schwung %d: Klinge nicht durch den Körper" % idx, worst < 0.03, "%.2f m tief bei t=%.2f" % [worst, _worst_t])
+	dummy_body.queue_free()
+
 	# --- Durchgänge zwischen den Räumen sind begehbar ---
 	for seg in [["Durchgang Halle -> Training Yard", Vector3(1.8, 0.1, -9.0), -17.0],
 			["Durchgang Training Yard -> Rampe", Vector3(1.8, 0.1, -42.0), -49.0],
@@ -148,6 +157,59 @@ func _ready() -> void:
 
 	print("\n=== SMOKE TEST: %s (%d Fehler) ===" % ["OK" if fails == 0 else "FEHLER", fails])
 	get_tree().quit(fails)
+
+
+var _worst_t := 0.0
+
+## Wie tief steckt die Klinge maximal im Rumpf/Kopf (in Brust-Koordinaten, vereinfachte Körperform)?
+func _blade_through_body(b: ShadowBody, idx: int) -> float:
+	b.combat = 1.0
+	for i in 60:
+		b.action = &""
+		b.tick(1.0 / 60.0)
+	var worst := 0.0
+	_worst_t = 0.0
+	var steps := 90
+	for i in steps + 1:
+		b.action = &"swing"
+		b.swing_index = idx
+		b.action_t = float(i) / steps
+		b.tick(1.0 / 60.0)
+		var inv := b.chest.global_transform.affine_inverse()
+		var pts := b.sword_points()
+		var samples: Array[Vector3] = []
+		for k in 9:
+			samples.append(inv * pts[0].lerp(pts[1], 0.15 + 0.85 * k / 8.0))
+		# Unterarm (Ellbogen -> Hand) darf auch nicht durch den Rumpf
+		var elbow: Vector3 = inv * b.arm_lo_r.global_position
+		var hand: Vector3 = inv * pts[0]
+		for k in 4:
+			samples.append(elbow.lerp(hand, k / 3.0))
+		for p in samples:
+			var d := _body_depth(p)
+			if d > worst:
+				worst = d
+				_worst_t = b.action_t
+	b.combat = 0.0
+	return worst
+
+
+## Eindringtiefe eines Punkts (Brust-Koordinaten) in Rumpf, Umhang, Becken oder Kopf; 0 = außerhalb.
+func _body_depth(p: Vector3) -> float:
+	var depth := 0.0
+	# Kopf/Kapuze
+	depth = maxf(depth, 0.19 - p.distance_to(Vector3(0, 0.66, 0)))
+	# Rumpf + Umhang: elliptischer Querschnitt, je nach Höhe
+	if p.y > -0.3 and p.y < 0.55:
+		var rx := 0.15
+		var rz := 0.11
+		if p.y > 0.12:
+			rx = 0.27
+			rz = 0.21
+		var e := sqrt(pow(p.x / rx, 2) + pow(p.z / rz, 2))
+		if e < 1.0:
+			depth = maxf(depth, (1.0 - e) * minf(rx, rz))
+	return depth
 
 
 func _teleport(pos: Vector3, yaw: float) -> void:

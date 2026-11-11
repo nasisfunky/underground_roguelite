@@ -151,6 +151,7 @@ func _animate(delta: float) -> void:
 	var local := hv.rotated(Vector3.UP, -facing_yaw)
 	body.local_move = Vector2(local.x, -local.z) / move_speed
 	body.on_floor = true
+	body.combat = 1.0 if _player and state != S.DEAD and _player.global_position.distance_to(global_position) < 7.0 else 0.0
 	body.look_target = (_player.global_position + Vector3.UP * 1.4) if _player and state != S.DEAD else null
 	match state:
 		S.WINDUP:

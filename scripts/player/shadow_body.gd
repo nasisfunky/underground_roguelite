@@ -31,6 +31,7 @@ var action: StringName = &""  ## "", swing, roll, block, stagger, dead
 var action_t := 0.0  ## normierte Zeit der Aktion 0..1
 var swing_index := 0  ## welcher Schwung (0,1 = Auto-Angriff, 2 = schwerer Hieb)
 var block_amount := 0.0  ## 0..1, Schild-Anheben
+var combat := 0.0  ## 0..1, Kampfhaltung (Ziel in Reichweite): Schild und Waffe erhoben
 var look_target: Variant = null  ## Weltposition, zu der der Kopf schaut (oder null)
 
 # --- Interne Knoten ---
@@ -66,6 +67,11 @@ const SHOULDER_L := Vector3(-0.21, 0.43, 0.02)
 const SHOULDER_R := Vector3(0.21, 0.43, 0.02)
 ## Posen wurden für die alten, längeren Arme geschrieben -> hier auf die neue Reichweite skaliert
 const POSE_SCALE := 0.92
+## Kampfhaltung (Brust-Koordinaten, umgerechnet in Posen-Koordinaten)
+var GUARD_GRIP := _unscale(Vector3(0.30, 0.12, -0.32))
+var GUARD_DIR := Vector3(-0.12, 0.55, -0.85)
+var GUARD_SHIELD := _unscale(Vector3(-0.2, 0.2, -0.4))
+var GUARD_SHIELD_FRONT := Vector3(0.18, 0.05, -1.0)
 const ROLL_SPIN := 0.7  ## Anteil der Rolle, in dem gedreht wird; danach Aufrichten
 const ROLL_PIVOT := 0.88  ## Drehpunkt der Rolle: Körpermitte (Hüfte + 0.1 m)
 
@@ -92,6 +98,7 @@ var _sp_air: Spring
 var _sp_rig_x: Spring
 var _sp_rig_y: Spring
 var _sp_pivot: Spring
+var _sp_combat: Spring
 var _glue := 0.0
 var _sp_scarf: Spring
 var _sp_tab_f: Spring
@@ -260,6 +267,7 @@ func _init_springs() -> void:
 	_sp_rig_x = Spring.new(2.4, 0.85, 1.0, 0.0)
 	_sp_rig_y = Spring.new(3.0, 0.7, 1.0, RIG_Y)
 	_sp_pivot = Spring.new(5.0, 1.0, 1.0, RIG_Y)
+	_sp_combat = Spring.new(1.6, 1.0, 1.0, 0.0)  # Kampfhaltung baut sich in ~0,4 s auf
 	# Stoff: weich und schwingend
 	_sp_scarf = Spring.new(1.6, 0.3, 1.0, 0.3)
 	_sp_tab_f = Spring.new(2.4, 0.35, 1.0, 0.0)
@@ -319,16 +327,18 @@ func tick(delta: float) -> void:
 	var bob := (-0.05 * s + 0.06 * s * absf(cos(_phase))) * w_move  # deutliches Absenken pro Schritt = Gewicht
 	# Stand-Pose (Kampfhaltung, leichtes Atmen)
 	var breathe := sin(_time * 2.0)
-	var idle_hl := 0.16
-	var idle_hr := -0.2
-	var idle_kl := -0.28
-	var idle_kr := -0.16
+	var cw: float = clampf(_sp_combat.update(delta, combat), 0.0, 1.0)
+	# Kampfstand: linkes Bein vor, rechtes zurück, tiefer in den Knien
+	var idle_hl := lerpf(0.16, 0.34, cw)
+	var idle_hr := lerpf(-0.2, -0.3, cw)
+	var idle_kl := lerpf(-0.28, -0.55, cw)
+	var idle_kr := lerpf(-0.16, -0.42, cw)
 	var wm := clampf(w_move, 0.0, 1.0)
 	var hl := Vector3(lerpf(idle_hl, run_hl, wm), 0.0, lerpf(-0.05, 0.0, wm))
 	var hr := Vector3(lerpf(idle_hr, run_hr, wm), 0.0, lerpf(0.05, 0.0, wm))
 	var kl := lerpf(idle_kl, run_kl, wm)
 	var kr := lerpf(idle_kr, run_kr, wm)
-	var hips_y := lerpf(-0.03 + breathe * 0.006, bob, wm)
+	var hips_y := lerpf(-0.03 - 0.035 * cw + breathe * (0.006 + 0.006 * cw), bob, wm)
 	# Luft-Pose überblenden
 	var rising := clampf(vertical_velocity / 6.0, -1.0, 1.0)
 	hl.x = lerpf(hl.x, 0.6 + 0.3 * rising, w_air)
@@ -337,7 +347,7 @@ func tick(delta: float) -> void:
 	kr = lerpf(kr, -0.5, w_air)
 
 	# Rumpf: vorlehnen mit Tempo und beim Beschleunigen, in Kurven neigen
-	var lean := -0.06 - 0.16 * minf(s, 1.0) * wm - clampf(accel * 0.012, -0.25, 0.25) - 0.08 * w_air
+	var lean := -0.06 - 0.1 * cw - 0.16 * minf(s, 1.0) * wm - clampf(accel * 0.012, -0.25, 0.25) - 0.08 * w_air
 	var bank := clampf(-yaw_rate * speed * 0.012, -0.3, 0.3)
 	var twist := 0.0
 	var hips_drop := 0.0
@@ -358,18 +368,29 @@ func tick(delta: float) -> void:
 	var sh_pos := Vector3(-0.28, -0.18, -0.12)
 	var sh_front := Vector3(-0.5, 0.0, -0.85)
 	sh_pos.z += sin(_phase + PI) * 0.05 * minf(s, 1.0) * wm
+	# Kampfhaltung: Schild vor der Brust, Klinge schräg nach vorn oben gerichtet
+	if cw > 0.0:
+		var bob_g := Vector3(0, sin(_phase * 2.0) * 0.015 * wm + breathe * 0.008, 0)
+		grip = grip.lerp(GUARD_GRIP + bob_g, cw)
+		sdir = sdir.lerp(GUARD_DIR, cw)
+		sflat = sflat.lerp(Vector3(1, 0, 0.3), cw)
+		sh_pos = sh_pos.lerp(GUARD_SHIELD + bob_g, cw)
+		sh_front = sh_front.lerp(GUARD_SHIELD_FRONT, cw)
 	var hand_f := 3.0  # Federfrequenz der Hände (niedrig = träge, schwer)
 
 	match action:
 		&"swing":
-			var k := _swing_pose(swing_index, action_t)
+			var k := _swing_pose(swing_index, action_t, [grip, sdir, sflat])
 			grip = k[0]
 			sdir = k[1]
 			sflat = k[2]
 			twist = k[3]
 			lean += k[4]
 			hips_drop = k[5]
-			hand_f = 6.5  # Schwung: Gewicht, aber trifft noch klar
+			hand_f = 7.5  # Schwung: Gewicht, aber trifft noch klar
+			# Schild weicht etwas zur Seite, damit der Schwertarm frei durchkommt
+			sh_pos = sh_pos.lerp(_unscale(Vector3(-0.3, 0.1, -0.3)), 0.7)
+			sh_front = sh_front.lerp(Vector3(-0.35, 0.0, -1.0), 0.7)
 			_trail.emitting = action_t > k[6].x and action_t < k[6].y
 		&"roll":
 			# Rolle bis ROLL_SPIN, danach schweres Aufrichten aus der Hocke
@@ -561,6 +582,11 @@ func _lowest_body_point() -> float:
 	return lo
 
 
+## Umkehrung von _scale_pose: Brust-Koordinaten -> Posen-Koordinaten
+func _unscale(v: Vector3) -> Vector3:
+	return Vector3(v.x / 0.95, (v.y - 0.43) / POSE_SCALE + 0.47, v.z / POSE_SCALE)
+
+
 func _scale_pose(v: Vector3) -> Vector3:
 	return Vector3(v.x * 0.95, 0.43 + (v.y - 0.47) * POSE_SCALE, v.z * POSE_SCALE)
 
@@ -619,35 +645,41 @@ func _ease_roll(t: float) -> float:
 
 
 ## Keyframes eines Schwungs. Liefert [griff, klingenrichtung, flachseite, drehung, vorlage, absenken, trail_fenster]
-func _swing_pose(index: int, t: float) -> Array:
+func _swing_pose(index: int, t: float, base: Array) -> Array:
+	# Keys in Brust-Koordinaten: [t, Griff, Klingenrichtung, Flachseite, Drehung, Vorlage, Absenken].
+	# Erster und letzter Key = aktuelle Grundhaltung -> nahtloser Übergang aus/zurück in die Kampfhaltung.
+	# Ablauf: Ausholen (langsam, Körper dreht ein) -> Treffer (schnell) -> Durchziehen -> Zurückfinden.
 	var keys: Array
-	var trail_window := Vector2(0.28, 0.62)
+	var trail_window := Vector2(0.32, 0.62)
 	match index:
-		0:  # waagerecht von rechts nach links
+		0:  # Vorhand, waagerecht von rechts nach links
 			keys = [
-				[0.0, Vector3(0.27, -0.30, -0.16), Vector3(0.12, -0.32, -1), Vector3(1, 0, 0), 0.0, 0.0, 0.0],
-				[0.30, Vector3(0.44, 0.06, 0.10), Vector3(0.95, 0.2, 0.45), Vector3(0, 1, 0), -0.55, 0.05, 0.03],
-				[0.42, Vector3(0.14, -0.02, -0.52), Vector3(0.1, 0.0, -1), Vector3(0, 1, 0), 0.05, -0.12, 0.06],
-				[0.56, Vector3(-0.34, -0.10, -0.30), Vector3(-1, -0.12, 0.05), Vector3(0, 1, 0), 0.6, -0.08, 0.06],
-				[1.0, Vector3(0.27, -0.30, -0.16), Vector3(0.12, -0.32, -1), Vector3(1, 0, 0), 0.0, 0.0, 0.0],
+				[0.30, Vector3(0.40, 0.30, 0.08), Vector3(0.55, 0.5, 0.67), Vector3(0, 1, 0), -0.6, 0.08, 0.0],
+				[0.44, Vector3(0.14, 0.16, -0.60), Vector3(-0.05, 0.05, -1), Vector3(0, 1, 0), -0.05, -0.18, 0.07],
+				[0.56, Vector3(-0.24, 0.08, -0.62), Vector3(-1, -0.1, -0.4), Vector3(0, 1, 0), 0.55, -0.22, 0.08],
+				[0.74, Vector3(-0.08, 0.10, -0.58), Vector3(-0.6, 0.2, -0.75), Vector3(0, 1, 0), 0.3, -0.1, 0.04],
 			]
-		1:  # aufsteigender Rückhandschlag von links nach rechts
+		1:  # Rückhand, aufsteigend von links unten nach rechts oben
 			keys = [
-				[0.0, Vector3(0.27, -0.30, -0.16), Vector3(0.12, -0.32, -1), Vector3(1, 0, 0), 0.0, 0.0, 0.0],
-				[0.30, Vector3(-0.28, -0.26, -0.14), Vector3(-0.9, -0.35, -0.3), Vector3(0, 1, 0.3), 0.5, 0.0, 0.04],
-				[0.42, Vector3(0.10, -0.06, -0.54), Vector3(0.1, 0.12, -1), Vector3(0, 1, 0.2), 0.0, -0.12, 0.06],
-				[0.58, Vector3(0.48, 0.16, -0.06), Vector3(0.9, 0.5, 0.35), Vector3(-0.3, 1, 0), -0.55, -0.05, 0.04],
-				[1.0, Vector3(0.27, -0.30, -0.16), Vector3(0.12, -0.32, -1), Vector3(1, 0, 0), 0.0, 0.0, 0.0],
+				[0.30, Vector3(-0.15, 0.0, -0.64), Vector3(-0.75, -0.45, -0.2), Vector3(0, 1, 0.3), 0.5, -0.05, 0.03],
+				[0.44, Vector3(0.08, 0.10, -0.62), Vector3(0.1, 0.2, -1), Vector3(0, 1, 0.2), 0.0, -0.18, 0.07],
+				[0.58, Vector3(0.42, 0.34, -0.25), Vector3(0.75, 0.6, 0.0), Vector3(-0.3, 1, 0), -0.5, -0.1, 0.04],
+				[0.76, Vector3(0.34, 0.20, -0.35), Vector3(0.2, 0.7, -0.6), Vector3(0, 1, 0), -0.2, -0.05, 0.02],
 			]
 		_:  # schwerer Hieb von oben
-			trail_window = Vector2(0.36, 0.66)
+			trail_window = Vector2(0.36, 0.62)
 			keys = [
-				[0.0, Vector3(0.27, -0.30, -0.16), Vector3(0.12, -0.32, -1), Vector3(1, 0, 0), 0.0, 0.0, 0.0],
-				[0.36, Vector3(0.12, 0.48, 0.10), Vector3(0.0, 1.0, 0.55), Vector3(1, 0, 0), -0.2, 0.22, 0.0],
-				[0.48, Vector3(0.05, 0.02, -0.52), Vector3(0.0, 0.15, -1), Vector3(1, 0, 0), 0.0, -0.3, 0.12],
-				[0.62, Vector3(0.03, -0.46, -0.48), Vector3(0.0, -0.8, -0.6), Vector3(1, 0, 0), 0.05, -0.45, 0.2],
-				[1.0, Vector3(0.27, -0.30, -0.16), Vector3(0.12, -0.32, -1), Vector3(1, 0, 0), 0.0, 0.0, 0.0],
+				[0.34, Vector3(0.30, 0.62, 0.02), Vector3(0.15, 0.55, 0.82), Vector3(1, 0, 0), -0.2, 0.15, 0.0],
+				[0.42, Vector3(0.10, 0.30, -0.62), Vector3(0, 0.35, -1), Vector3(1, 0, 0), 0.0, -0.25, 0.1],
+				[0.56, Vector3(0.06, -0.22, -0.58), Vector3(0, -0.65, -0.75), Vector3(1, 0, 0), 0.05, -0.4, 0.18],
+				[0.78, Vector3(0.20, 0.00, -0.50), Vector3(0.0, 0.2, -1), Vector3(1, 0, 0), 0.0, -0.2, 0.08],
 			]
+	for key in keys:
+		key[1] = _unscale(key[1])
+	var b0: Array = [0.0, base[0], base[1], base[2], 0.0, 0.0, 0.0]
+	var b1: Array = [1.0, base[0], base[1], base[2], 0.0, 0.0, 0.0]
+	keys.push_front(b0)
+	keys.push_back(b1)
 	# Catmull-Rom durch die Keyframes: durchgehende Geschwindigkeit, keine Stopps an den Keys
 	var i := 0
 	while i < keys.size() - 2 and t > keys[i + 1][0]:
