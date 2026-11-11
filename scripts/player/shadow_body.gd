@@ -23,7 +23,7 @@ var weapon_length := 0.78
 
 # --- Eingänge vom Controller (pro Tick setzen) ---
 var speed := 0.0  ## horizontale Geschwindigkeit in m/s
-var run_speed_ref := 6.5
+var run_speed_ref := 4.8
 var local_move := Vector2.ZERO  ## Laufrichtung relativ zum Körper (x rechts, y vorwärts)
 var on_floor := true
 var vertical_velocity := 0.0
@@ -59,13 +59,15 @@ const LOWER_ARM := 0.33
 const THIGH := 0.38
 const SHIN := 0.43
 const RIG_Y := 0.45  ## Drehpunkt für Rolle/Sturz
-const HIPS_Y := 0.33  ## Hüfte relativ zum Rig -> 0,78 m über dem Boden
+const HIPS_Y := 0.36  ## Hüfte relativ zum Rig -> 0,81 m (Spitzen berühren im Stand den Boden)
 const CHEST_Y := 0.04
 const HEAD_Y := 0.64
 const SHOULDER_L := Vector3(-0.21, 0.43, 0.02)
 const SHOULDER_R := Vector3(0.21, 0.43, 0.02)
 ## Posen wurden für die alten, längeren Arme geschrieben -> hier auf die neue Reichweite skaliert
 const POSE_SCALE := 0.92
+const ROLL_SPIN := 0.7  ## Anteil der Rolle, in dem gedreht wird; danach Aufrichten
+const ROLL_PIVOT := 0.88  ## Drehpunkt der Rolle: Körpermitte (Hüfte + 0.1 m)
 
 var _phase := 0.0
 var _time := 0.0
@@ -89,6 +91,8 @@ var _sp_moving: Spring
 var _sp_air: Spring
 var _sp_rig_x: Spring
 var _sp_rig_y: Spring
+var _sp_pivot: Spring
+var _glue := 0.0
 var _sp_scarf: Spring
 var _sp_tab_f: Spring
 var _sp_tab_b: Spring
@@ -239,22 +243,23 @@ func sword_points() -> Array[Vector3]:
 
 func _init_springs() -> void:
 	# Hand/Waffe: reagiert flott, schwingt minimal nach
-	_sp_grip = Spring.new(4.0, 0.8, 1.1, _scale_pose(Vector3(0.27, -0.30, -0.16)))
-	_sp_dir = Spring.new(4.0, 0.8, 1.1, Vector3(0.12, -0.32, -1.0).normalized())
-	_sp_flat = Spring.new(4.0, 0.9, 1.0, Vector3.RIGHT)
+	_sp_grip = Spring.new(3.0, 0.8, 1.1, _scale_pose(Vector3(0.27, -0.30, -0.16)))
+	_sp_dir = Spring.new(3.0, 0.8, 1.1, Vector3(0.12, -0.32, -1.0).normalized())
+	_sp_flat = Spring.new(3.0, 0.9, 1.0, Vector3.RIGHT)
 	_sp_shield = Spring.new(3.5, 0.75, 1.0, _scale_pose(Vector3(-0.28, -0.18, -0.12)))
 	_sp_shield_dir = Spring.new(3.5, 0.8, 1.0, Vector3(-0.5, 0.0, -0.85).normalized())
 	# Rumpf: etwas träger, leichtes Nachwippen
-	_sp_lean = Spring.new(2.6, 0.55, 0.8, 0.0)
-	_sp_bank = Spring.new(2.2, 0.6, 1.0, 0.0)
+	_sp_lean = Spring.new(1.8, 0.6, 0.6, 0.0)
+	_sp_bank = Spring.new(1.5, 0.7, 1.0, 0.0)
 	_sp_twist = Spring.new(3.5, 0.7, 1.2, 0.0)
-	_sp_drop = Spring.new(3.0, 0.45, 1.0, 0.0)
-	_sp_lower = Spring.new(3.0, 0.9, 1.0, 0.0)
-	_sp_head = Spring.new(2.5, 0.8, 1.0, Vector2.ZERO)
-	_sp_moving = Spring.new(2.5, 1.0, 1.0, 0.0)
+	_sp_drop = Spring.new(2.4, 0.5, 1.0, 0.0)
+	_sp_lower = Spring.new(2.2, 0.9, 1.0, 0.0)
+	_sp_head = Spring.new(1.8, 0.85, 1.0, Vector2.ZERO)
+	_sp_moving = Spring.new(1.8, 1.0, 1.0, 0.0)
 	_sp_air = Spring.new(4.0, 0.9, 1.0, 0.0)
-	_sp_rig_x = Spring.new(3.0, 0.8, 1.0, 0.0)
-	_sp_rig_y = Spring.new(4.0, 0.6, 1.0, RIG_Y)
+	_sp_rig_x = Spring.new(2.4, 0.85, 1.0, 0.0)
+	_sp_rig_y = Spring.new(3.0, 0.7, 1.0, RIG_Y)
+	_sp_pivot = Spring.new(5.0, 1.0, 1.0, RIG_Y)
 	# Stoff: weich und schwingend
 	_sp_scarf = Spring.new(1.6, 0.3, 1.0, 0.3)
 	_sp_tab_f = Spring.new(2.4, 0.35, 1.0, 0.0)
@@ -295,10 +300,10 @@ func tick(delta: float) -> void:
 	# --- Schrittzyklus: Schrittlänge wächst mit Tempo, Beinausschlag passt zur Schrittlänge (kein Gleiten) ---
 	var backwards := local_move.y < -0.1
 	var dir_sign := -1.0 if backwards else 1.0
-	var stride := lerpf(0.8, 1.45, clampf(s, 0.0, 1.0))  # Meter pro Doppelschritt
+	var stride := lerpf(1.25, 2.5, clampf(s, 0.0, 1.0))  # Meter pro Doppelschritt: wenige, lange Schritte
 	_phase += delta * speed / stride * TAU * dir_sign
 	var leg_len := THIGH + SHIN
-	var amp := asin(clampf(stride * 0.25 / leg_len, 0.0, 0.9)) * 1.15 * w_move
+	var amp := asin(clampf(stride * 0.25 / leg_len, 0.0, 0.9)) * 1.05 * w_move
 	var target_lower := 0.0
 	if s > 0.05 and on_floor and local_move.length() > 0.1:
 		var lm := local_move * dir_sign
@@ -311,7 +316,7 @@ func tick(delta: float) -> void:
 	var lift := minf(s, 1.0) * w_move
 	var run_kl := -(0.1 + 1.3 * maxf(0.0, cos(_phase)) * lift)
 	var run_kr := -(0.1 + 1.3 * maxf(0.0, cos(_phase + PI)) * lift)
-	var bob := (-0.035 * s + 0.04 * s * absf(cos(_phase))) * w_move
+	var bob := (-0.05 * s + 0.06 * s * absf(cos(_phase))) * w_move  # deutliches Absenken pro Schritt = Gewicht
 	# Stand-Pose (Kampfhaltung, leichtes Atmen)
 	var breathe := sin(_time * 2.0)
 	var idle_hl := 0.16
@@ -339,6 +344,10 @@ func tick(delta: float) -> void:
 	var rig_x := 0.0
 	var rig_y := RIG_Y
 	var rig_direct := false
+	var pivot := RIG_Y  # Drehpunkt (Höhe) für rig_x
+	var rig_scale := 1.0
+	var head_tuck := 0.0
+	var ground_glue := false
 
 	# --- Waffe / Schild Grundposen ---
 	var grip := Vector3(0.27, -0.30, -0.16).lerp(Vector3(0.30, -0.34, 0.02), minf(s, 1.0) * wm)
@@ -349,7 +358,7 @@ func tick(delta: float) -> void:
 	var sh_pos := Vector3(-0.28, -0.18, -0.12)
 	var sh_front := Vector3(-0.5, 0.0, -0.85)
 	sh_pos.z += sin(_phase + PI) * 0.05 * minf(s, 1.0) * wm
-	var hand_f := 4.0  # Federfrequenz der Hände
+	var hand_f := 3.0  # Federfrequenz der Hände (niedrig = träge, schwer)
 
 	match action:
 		&"swing":
@@ -360,22 +369,44 @@ func tick(delta: float) -> void:
 			twist = k[3]
 			lean += k[4]
 			hips_drop = k[5]
-			hand_f = 9.0  # Schwung soll knackig sein
+			hand_f = 6.5  # Schwung: Gewicht, aber trifft noch klar
 			_trail.emitting = action_t > k[6].x and action_t < k[6].y
 		&"roll":
+			# Rolle bis ROLL_SPIN, danach schweres Aufrichten aus der Hocke
 			var e := _ease_roll(action_t)
 			rig_x = -TAU * e
 			rig_direct = true
-			rig_y = RIG_Y - 0.2 * sin(action_t * PI)
-			var tuck := sin(clampf(action_t * 1.2, 0.0, 1.0) * PI)
+			pivot = ROLL_PIVOT
+			var u := clampf(action_t / ROLL_SPIN, 0.0, 1.0)
+			var tuck := sin(u * PI)
+			ground_glue = true  # Höhe ergibt sich aus Bodenkontakt (siehe unten)
+			rig_scale = 1.0 - 0.2 * tuck  # zusammenrollen -> kein Eintauchen in den Boden
+			lean = lerpf(lean, -1.0, tuck)
+			head_tuck = 0.5 * tuck
+			# Hocke: setzt gegen Ende der Drehung ein (Füße greifen), klingt beim Aufrichten aus
+			var k_in := clampf((action_t - 0.45) / (ROLL_SPIN - 0.45), 0.0, 1.0)
+			var k_out := clampf((action_t - ROLL_SPIN) / (1.0 - ROLL_SPIN), 0.0, 1.0)
+			var kneel := k_in * k_in * (3.0 - 2.0 * k_in) * (0.5 + 0.5 * cos(k_out * PI))
+			if kneel > 0.0:
+				# tiefe Hocke: ein Bein vorn, eins hinten, Füße bleiben über dem Boden
+				hips_drop = 0.08 * kneel
+				lean = lerpf(lean, -0.35, kneel)
+				kl = lerpf(kl, -1.6, kneel)
+				kr = lerpf(kr, -1.4, kneel)
+				hl.x = lerpf(hl.x, 1.0, kneel)
+				hr.x = lerpf(hr.x, -0.3, kneel)
 			hl.x = lerpf(hl.x, 1.5, tuck)
 			hr.x = lerpf(hr.x, 1.3, tuck)
 			kl = lerpf(kl, -2.3, tuck)
 			kr = lerpf(kr, -2.2, tuck)
-			grip = Vector3(0.2, -0.05, -0.25)
-			sdir = Vector3(0.2, -0.4, 1.0)
-			sh_pos = Vector3(-0.2, 0.0, -0.3)
-			hand_f = 6.0
+			# Klinge zeigt zur Seite (parallel zur Drehachse) -> sticht nie in den Boden
+			var wb := clampf(action_t * 12.0, 0.0, 1.0) * (1.0 - smoothstep(0.82, 1.0, action_t))
+			grip = grip.lerp(Vector3(0.3, 0.02, -0.08), wb)
+			sdir = sdir.lerp(Vector3(1.0, -0.05, 0.12), wb)
+			sflat = Vector3(0, 1, 0)
+			sh_pos = sh_pos.lerp(Vector3(-0.3, 0.06, -0.04), wb)
+			sh_front = sh_front.lerp(Vector3(-1.0, 0.0, -0.1), wb)
+			hand_f = 7.0  # Waffe schnell anlegen, sonst sticht sie beim Abtauchen in den Boden
 		&"bash":
 			var w := sin(clampf(action_t * 2.2, 0.0, 1.0) * PI)
 			sh_pos = Vector3(-0.04, 0.04, -0.40 - 0.22 * w)
@@ -385,7 +416,7 @@ func tick(delta: float) -> void:
 			lean -= 0.3 * w
 			twist = 0.35 * w
 			hips_drop = 0.08 * w
-			hand_f = 9.0
+			hand_f = 6.5
 		&"stagger":
 			var w := sin(minf(action_t * 1.3, 1.0) * PI)
 			lean += 0.45 * w
@@ -438,17 +469,25 @@ func tick(delta: float) -> void:
 	var dr: float = _sp_drop.update(delta, hips_drop)
 
 	# Rolle: direkt gesteuert; danach federt der Körper auf dem kürzesten Weg zurück
+	var rx: float
+	var ry: float
 	if rig_direct:
 		_sp_rig_x.reset(rig_x)
-		rig.rotation.x = rig_x
+		_sp_rig_y.reset(rig_y)
+		rx = rig_x
+		ry = rig_y
 	else:
 		if absf(_sp_rig_x.y) > PI:
 			_sp_rig_x.reset(wrapf(_sp_rig_x.y, -PI, PI))
-		rig.rotation.x = _sp_rig_x.update(delta, rig_x)
-	rig.rotation.z = bk
-	rig.position.y = _sp_rig_y.update(delta, rig_y) if not rig_direct else rig_y
+		rx = _sp_rig_x.update(delta, rig_x)
+		ry = _sp_rig_y.update(delta, rig_y)
+	var pv: float = _sp_pivot.update(delta, pivot)
 	if rig_direct:
-		_sp_rig_y.reset(rig_y)
+		_sp_pivot.reset(pivot)
+		pv = pivot
+	# Drehung um einen Punkt in Körperhöhe pv statt um den Rig-Ursprung
+	var rb := Basis.from_euler(Vector3(rx, 0.0, bk)).scaled(Vector3.ONE * rig_scale)
+	rig.transform = Transform3D(rb, Vector3(0, ry - RIG_Y + pv, 0) + rb * Vector3(0, RIG_Y - pv, 0))
 	hips.position.y = HIPS_Y + hips_y - dr
 	hips.rotation.y = lower_yaw
 	chest.rotation = Vector3(ln, tw - lower_yaw, -bk * 0.5)
@@ -464,7 +503,16 @@ func tick(delta: float) -> void:
 		var to := local_t - head.position
 		look = Vector2(clampf(atan2(-to.x, -to.z), -0.9, 0.9), clampf(atan2(to.y, Vector2(to.x, to.z).length()), -0.4, 0.3))
 	var hlook: Vector2 = _sp_head.update(delta, look)
-	head.rotation = Vector3(hlook.y - ln * 0.5, hlook.x, 0.0)
+	head.rotation = Vector3(hlook.y - ln * 0.5 - head_tuck, hlook.x, 0.0)
+
+	# Bodenkontakt: während der Rolle liegt der tiefste Körperpunkt genau auf dem Boden
+	# (kein Eintauchen, kein Schweben). Danach klingt der Versatz weich aus.
+	if ground_glue:
+		_glue = -_lowest_body_point()
+	else:
+		_glue *= exp(-10.0 * delta)
+	if absf(_glue) > 0.0005 or ground_glue:
+		rig.position.y += _glue
 
 	# Stoff schwingt mit Trägheit nach
 	var cloth_drive := minf(s, 1.2)
@@ -491,6 +539,26 @@ func tick(delta: float) -> void:
 	if _trail.emitting or _trail.has_points():
 		var pts := sword_points()
 		_trail.push(pts[0], pts[1], delta)
+
+
+## Tiefster Punkt des Körpers (ohne Waffe/Schild) relativ zum Boden der Figur.
+func _lowest_body_point() -> float:
+	var inv := global_transform.affine_inverse()
+	var pts: Array[Vector3] = [
+		knee_l.global_transform * Vector3(0, -SHIN, 0), knee_r.global_transform * Vector3(0, -SHIN, 0),
+		knee_l.global_position, knee_r.global_position,
+		head.global_transform * Vector3(0, 0.29, 0.02), head.global_transform * Vector3(0, 0.1, -0.2),
+		head.global_transform * Vector3(0, 0.1, 0.2), head.global_transform * Vector3(0, -0.08, -0.18),
+		head.global_transform * Vector3(-0.2, 0.04, 0), head.global_transform * Vector3(0.2, 0.04, 0),
+		head.global_transform * Vector3(0, 0.2, 0.16), head.global_transform * Vector3(0, 0.2, -0.16),
+		chest.global_transform * Vector3(-0.26, 0.42, 0), chest.global_transform * Vector3(0.26, 0.42, 0),
+		chest.global_transform * Vector3(0, 0.45, 0.24), chest.global_transform * Vector3(0, 0.3, -0.2),
+		hips.global_transform * Vector3(0, -0.08, 0.15), hips.global_transform * Vector3(0, -0.08, -0.15),
+	]
+	var lo := 99.0
+	for pt in pts:
+		lo = minf(lo, (inv * pt).y)
+	return lo
 
 
 func _scale_pose(v: Vector3) -> Vector3:
@@ -545,8 +613,9 @@ func _seg_basis(along: Vector3, side_hint: Vector3) -> Basis:
 
 
 func _ease_roll(t: float) -> float:
-	# schnell rein, weich raus
-	return 1.0 - pow(1.0 - clampf(t, 0.0, 1.0), 2.2)
+	# kräftiger Absprung, Drehung bis ROLL_SPIN, weich auslaufend
+	var u := clampf(t / ROLL_SPIN, 0.0, 1.0)
+	return lerpf(u * u * (3.0 - 2.0 * u), 1.0 - pow(1.0 - u, 2.0), 0.5)
 
 
 ## Keyframes eines Schwungs. Liefert [griff, klingenrichtung, flachseite, drehung, vorlage, absenken, trail_fenster]

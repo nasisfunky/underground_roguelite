@@ -30,29 +30,29 @@ func _ready() -> void:
 	b.build()
 	var cam := Camera3D.new()
 	root.add_child(cam)
-	cam.position = Vector3(1.75, 0.95, -0.7)
-	cam.look_at(Vector3(0, 0.8, 0))
+	cam.position = Vector3(2.2, 0.9, -1.2)
+	cam.look_at(Vector3(0, 0.6, -0.4))
 	var frame := 0
 	var t := 0.0
 	var spd := 0.0
-	while t < 5.4:
+	while t < 6.6:
 		var target_spd := 0.0
 		b.action = &""
 		b.block_amount = 0.0
-		if t > 0.5 and t < 1.7:
-			target_spd = 6.5
-		spd = move_toward(spd, target_spd, 60.0 / FPS)
+		if t > 0.5 and t < 2.0:
+			target_spd = 4.8
+		spd = move_toward(spd, target_spd, 20.0 / FPS)
 		b.speed = spd
 		b.local_move = Vector2(0, 1) if spd > 0.1 else Vector2.ZERO
 		b.on_floor = true
-		if t >= 2.1 and t < 2.7:
-			b.action = &"swing"; b.swing_index = 0; b.action_t = (t - 2.1) / 0.6
-		elif t >= 2.7 and t < 3.3:
-			b.action = &"swing"; b.swing_index = 1; b.action_t = (t - 2.7) / 0.6
-		elif t >= 3.4 and t < 3.9:
-			b.action = &"roll"; b.action_t = (t - 3.4) / 0.5
-		elif t >= 4.3 and t < 5.0:
-			b.block_amount = clampf((t - 4.3) * 9.0, 0.0, 1.0)
+		if t >= 2.4 and t < 3.35:
+			b.action = &"swing"; b.swing_index = 0; b.action_t = (t - 2.4) / 0.95
+		elif t >= 3.35 and t < 4.3:
+			b.action = &"swing"; b.swing_index = 1; b.action_t = (t - 3.35) / 0.95
+		elif t >= 4.4 and t < 5.25:
+			b.action = &"roll"; b.action_t = (t - 4.4) / 0.85
+		elif t >= 5.6 and t < 6.3:
+			b.block_amount = clampf((t - 5.6) * 9.0, 0.0, 1.0)
 		b.tick(1.0 / FPS)
 		t += 1.0 / FPS
 		if frame % EVERY == 0:

@@ -8,12 +8,12 @@ signal respawn_requested(husk: Husk)
 
 enum S { IDLE, CHASE, WINDUP, STRIKE, RECOVER, STAGGER, DEAD }
 
-@export var move_speed := 3.6
+@export var move_speed := 3.0
 @export var aggro_range := 14.0
 @export var attack_range := 2.3
-@export var windup_time := 0.62
-@export var strike_time := 0.16
-@export var recover_time := 0.65
+@export var windup_time := 0.85
+@export var strike_time := 0.2
+@export var recover_time := 0.9
 @export var damage := 18.0
 
 var state: S = S.IDLE
@@ -45,7 +45,7 @@ func _ready() -> void:
 	body.trim_color = LowPoly.OCHRE
 	body.has_shield = false
 	body.weapon_length = 0.85
-	body.run_speed_ref = 4.5
+	body.run_speed_ref = 3.4
 	body.build()
 	body.scale = Vector3.ONE * 1.08
 	add_child(body)

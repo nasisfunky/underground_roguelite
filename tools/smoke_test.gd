@@ -21,7 +21,7 @@ func _ready() -> void:
 	await _phys(60)
 	Input.action_release("move_forward")
 	var moved := start.distance_to(p.global_position)
-	_check("Laufen ~6 m in 1 s", moved > 5.5 and moved < 7.0, "%.2f m" % moved)
+	_check("Laufen ~4,2 m in 1 s (mit Anlauf)", moved > 3.8 and moved < 4.8, "%.2f m" % moved)
 	await _phys(30)
 
 	# --- Springen ---
@@ -51,9 +51,9 @@ func _ready() -> void:
 	p.input._roll_pressed = true
 	await _phys(2)
 	_check("Rolle startet, unverwundbar", p.state == Player.State.ROLL and p.is_invulnerable(), str(p.state))
-	await _phys(40)
+	await _phys(55)
 	var rd := start.distance_to(p.global_position)
-	_check("Rollweite ~4,4 m", rd > 3.8 and rd < 5.2, "%.2f m" % rd)
+	_check("Rollweite ~3,8 m", rd > 3.3 and rd < 4.4, "%.2f m" % rd)
 	_check("Rolle kostet Ausdauer", p.stamina < st0, "%.0f -> %.0f" % [st0, p.stamina])
 	await _phys(90)
 	_check("Ausdauer lädt nach", p.stamina > 95.0, "%.0f" % p.stamina)
@@ -83,7 +83,7 @@ func _ready() -> void:
 	p.input._ability = 1
 	await _phys(3)
 	_check("Fähigkeit 1 startet", p.state == Player.State.ABILITY, str(p.state))
-	await _phys(60)
+	await _phys(80)
 	_check("Schwerer Hieb trifft", hits[0] >= 1, "%d" % hits[0])
 	_check("Abklingzeit läuft", p.abilities[0].cooldown_left > 3.0, "%.1f" % p.abilities[0].cooldown_left)
 	p.input._ability = 1
@@ -119,6 +119,22 @@ func _ready() -> void:
 	Input.action_release("block")
 	_check("Blocken hält Schaden ab (nur Ausdauer)", p.health >= hp0 - 0.1 and blocked[0] == 1, "HP %.0f -> %.0f" % [hp0, p.health])
 
+	# --- Rolle taucht nicht sichtbar in den Boden ---
+	_teleport(Vector3(0, 0.1, 8.0), 0.0)
+	await _phys(30)
+	var floor_y := p.global_position.y
+	var lowest := 99.0
+	p.input._roll_pressed = true
+	for i in 55:
+		await get_tree().physics_frame
+		for mi in p.body._meshes:
+			if not mi.is_visible_in_tree():
+				continue
+			var xf: Transform3D = mi.global_transform
+			for v in mi.mesh.get_faces():
+				lowest = minf(lowest, (xf * v).y)
+	_check("Rolle: Körper bleibt am Boden (max. 10 cm Eintauchen)", lowest > floor_y - 0.1, "%.2f m unter Boden" % (floor_y - lowest))
+
 	# --- Durchgänge zwischen den Räumen sind begehbar ---
 	for seg in [["Durchgang Halle -> Training Yard", Vector3(1.8, 0.1, -9.0), -17.0],
 			["Durchgang Training Yard -> Rampe", Vector3(1.8, 0.1, -42.0), -49.0],
@@ -126,7 +142,7 @@ func _ready() -> void:
 		_teleport(seg[1], 0.0)
 		await _phys(5)
 		Input.action_press("move_forward")
-		await _phys(100)
+		await _phys(150)
 		Input.action_release("move_forward")
 		_check(seg[0], p.global_position.z < seg[2], "z %.1f" % p.global_position.z)
 

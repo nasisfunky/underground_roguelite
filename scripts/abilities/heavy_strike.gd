@@ -2,7 +2,7 @@ class_name HeavyStrike
 extends Ability
 ## Taste 1: Wuchtiger Hieb von oben. Trifft alle Gegner in einem Kegel, bricht deren Haltung.
 
-const HIT_AT := 0.32
+const HIT_AT := 0.5
 var _hit_done := false
 
 
@@ -11,8 +11,8 @@ func _init() -> void:
 	short_name = "Strike"
 	cooldown = 5.0
 	stamina_cost = 20.0
-	duration = 0.85
-	cancel_at = 0.48
+	duration = 1.2
+	cancel_at = 0.78
 
 
 func start(_p: Player) -> void:
@@ -21,7 +21,7 @@ func start(_p: Player) -> void:
 
 func update(p: Player, t: float, delta: float) -> bool:
 	# kurzer Ausfallschritt, danach fest am Boden
-	var lunge := 5.5 if t > 0.18 and t < HIT_AT else 0.0
+	var lunge := 4.0 if t > 0.3 and t < HIT_AT else 0.0
 	var dir := p.forward()
 	p._horizontal_move(dir * lunge, delta * (3.0 if lunge > 0.0 else 1.0))
 	if not _hit_done and t >= HIT_AT:

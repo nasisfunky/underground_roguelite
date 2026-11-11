@@ -2,7 +2,7 @@ class_name ShieldBash
 extends Ability
 ## Taste 2: Schildstoß. Kurzer Vorstoß, wenig Schaden, bringt Gegner sicher ins Taumeln.
 
-const HIT_AT := 0.16
+const HIT_AT := 0.24
 var _hit_done := false
 
 
@@ -11,8 +11,8 @@ func _init() -> void:
 	short_name = "Bash"
 	cooldown = 7.0
 	stamina_cost = 15.0
-	duration = 0.5
-	cancel_at = 0.25
+	duration = 0.72
+	cancel_at = 0.38
 
 
 func start(_p: Player) -> void:

@@ -25,13 +25,13 @@ enum State { MOVE, ROLL, ABILITY, STAGGER, DEAD }
 @export var is_local := true
 
 @export_group("Laufen")
-@export var run_speed := 6.5
+@export var run_speed := 4.8
 @export var backpedal_mult := 0.6
 @export var block_speed_mult := 0.5
-@export var ground_accel := 60.0
-@export var ground_decel := 70.0
+@export var ground_accel := 20.0
+@export var ground_decel := 24.0
 @export var air_accel := 18.0
-@export var turn_sharpness := 16.0
+@export var turn_sharpness := 8.0
 @export var classic_turn_rate := 3.6  # rad/s für A/D im klassischen Modus
 
 @export_group("Springen")
@@ -44,10 +44,10 @@ enum State { MOVE, ROLL, ABILITY, STAGGER, DEAD }
 @export var buffer_time := 0.15
 
 @export_group("Rolle")
-@export var roll_duration := 0.5
-@export var roll_distance := 4.4
-@export var roll_iframes := 0.32
-@export var roll_cancel_at := 0.36
+@export var roll_duration := 0.85
+@export var roll_distance := 3.8
+@export var roll_iframes := 0.45
+@export var roll_cancel_at := 0.68
 @export var roll_cost := 22.0
 
 @export_group("Blocken")
@@ -56,8 +56,8 @@ enum State { MOVE, ROLL, ABILITY, STAGGER, DEAD }
 @export var block_stamina_per_damage := 1.4
 
 @export_group("Auto-Angriff")
-@export var swing_interval := 0.9  # Waffengeschwindigkeit
-@export var swing_duration := 0.6
+@export var swing_interval := 1.35  # Waffengeschwindigkeit
+@export var swing_duration := 0.95
 @export var swing_hit_at := 0.42  # normierte Zeit des Treffers
 @export var melee_range := 2.4
 @export var swing_damage := 9.0
@@ -95,6 +95,8 @@ var _blocking := false
 var _block_t := 0.0
 var _block_released_t := 10.0
 var _swing_cd := 0.0
+var _lmb_was_held := false
+var _lmb_yaw := 0.0
 var _swing_t := -1.0  # <0 = kein Schwung aktiv
 var _swing_index := 0
 var _swing_hit_done := false
@@ -312,6 +314,13 @@ func _desired_direction(delta: float, allow_turn := true) -> Vector3:
 	if input.lmb_held and input.rmb_held:
 		m.y = clampf(m.y + 1.0, -1.0, 1.0)  # beide Maustasten = vorwärts
 	var basis_yaw: float
+	# LMB allein dreht nur die Kamera: Laufrichtung bleibt an der Blickrichtung beim Drücken
+	if input.lmb_held and not input.rmb_held:
+		if not _lmb_was_held:
+			_lmb_yaw = camera_yaw() if not Game.classic_turning else facing_yaw
+		_lmb_was_held = true
+	else:
+		_lmb_was_held = false
 	if input.rmb_held:
 		# Mouselook: Charakter schaut immer dorthin, wo die Kamera hinschaut. A/D = seitwärts.
 		facing_yaw = camera_yaw()
@@ -322,6 +331,8 @@ func _desired_direction(delta: float, allow_turn := true) -> Vector3:
 			facing_yaw -= m.x * classic_turn_rate * delta
 		m.x = 0.0
 		basis_yaw = facing_yaw
+	elif _lmb_was_held:
+		basis_yaw = _lmb_yaw
 	else:
 		# Hybrid: kamera-relativ, Charakter dreht sich in Laufrichtung.
 		basis_yaw = camera_yaw()
