@@ -104,6 +104,7 @@ var _time := 0.0
 var _meshes: Array[MeshInstance3D] = []
 var _flash_t := 0.0
 var _flash_mat: StandardMaterial3D
+var _saved_overlays: Array[Material] = []  # Overlays (z. B. stumpfe Willfault-Ausrüstung) vor dem Blitz
 # geglättete Posenwerte
 var _springs_ready := false
 var _sp_grip: Spring
@@ -152,14 +153,12 @@ var _rng := RandomNumberGenerator.new()
 
 
 const PARTS_PATH := "res://assets/models/shade_parts.glb"
+const SKIN_SHADER := preload("res://assets/shaders/shade_skin.gdshader")
+static var _skin_mat: ShaderMaterial
 
 
 func build() -> void:
-	_flash_mat = StandardMaterial3D.new()
-	_flash_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	_flash_mat.albedo_color = Color(1, 1, 1, 0.75)
-	_flash_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	_flash_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	_flash_mat = hit_flash_material()
 
 	if outfit != "":
 		_build_frayed()
@@ -252,6 +251,24 @@ func build() -> void:
 		_build_lantern()
 
 
+## Trefferblitz als Overlay: kurzes warmes Aufglimmen, schwach genug, dass der Shade nie weiß wird.
+static func hit_flash_material() -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.albedo_color = Color(0.13, 0.085, 0.06)  # additiv: auf fast schwarz wirkt schon wenig sehr hell
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	return m
+
+
+## Schattenkörper: fast schwarz und matt, wird im Licht sichtbar heller, brennt aber nie weiß aus.
+static func skin_material() -> ShaderMaterial:
+	if _skin_mat == null:
+		_skin_mat = ShaderMaterial.new()
+		_skin_mat.shader = SKIN_SHADER
+	return _skin_mat
+
+
 ## Frayed-Stil: schwarzer Körper mit Flammensaum, Ausrüstung der Kultur `outfit`, simulierte Stoffe.
 func _build_frayed() -> void:
 	_rng.randomize()
@@ -259,8 +276,8 @@ func _build_frayed() -> void:
 	outfit_info = data.info
 	var parts: Dictionary = data.parts
 	eye_mat = LowPoly.mat(eye_color, 2.6).duplicate()
-	var skin := LowPoly.unshaded(Color(0.0, 0.0, 0.0))
-	_overrides = {"Skin": skin, "Eye": eye_mat}
+	eye_mat.cull_mode = BaseMaterial3D.CULL_DISABLED  # Augen-Dreiecke kommen aus dem Export umgekehrt gewickelt
+	_overrides = {"Skin": skin_material(), "Eye": eye_mat}
 	var body_hem: Array = FrayedOutfit.hem_chain(outfit_info, hem_layers, false, 1.3, hem_heat, hem_hot)
 	var head_hem: Array = FrayedOutfit.hem_chain(outfit_info, head_layers, true, 1.3, hem_heat, hem_hot)
 	_hem_mats.assign(body_hem[1] + head_hem[1])
@@ -374,7 +391,7 @@ func _dim_mat() -> StandardMaterial3D:
 
 ## Schwebende Schattensplitter um Rumpf und Kopf, glimmen am Rand im Willfault-Violett.
 func _build_shards() -> void:
-	var black := LowPoly.unshaded(Color(0.0, 0.0, 0.0))
+	var black := skin_material()
 	var edge := shard_mat if shard_mat else LowPoly.mat(eye_color, 2.0)
 	for i in 7:
 		var piv := _joint(chest if i < 5 else head, Vector3.ZERO)
@@ -509,9 +526,12 @@ func _part(parts: Dictionary, part_name: String, parent: Node) -> MeshInstance3D
 
 
 func flash(duration := 0.09) -> void:
+	if _flash_t <= 0.0:
+		_saved_overlays.clear()
+		for m in _meshes:
+			_saved_overlays.append(m.material_overlay)
+			m.material_overlay = _flash_mat
 	_flash_t = duration
-	for m in _meshes:
-		m.material_overlay = _flash_mat
 
 
 func set_eye_intensity(v: float) -> void:
@@ -566,8 +586,8 @@ func tick(delta: float) -> void:
 	if _flash_t > 0.0:
 		_flash_t -= delta
 		if _flash_t <= 0.0:
-			for m in _meshes:
-				m.material_overlay = null
+			for i in _meshes.size():
+				_meshes[i].material_overlay = _saved_overlays[i] if i < _saved_overlays.size() else null
 
 	# --- Bewegungsdaten ableiten: Beschleunigung, Drehrate, Landung ---
 	var accel := (speed - _prev_speed) / delta

@@ -85,12 +85,8 @@ func _ready() -> void:
 func _build_visual() -> void:
 	_vis = Node3D.new()
 	add_child(_vis)
-	_flash_mat = StandardMaterial3D.new()
-	_flash_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	_flash_mat.albedo_color = Color(1, 1, 1, 0.75)
-	_flash_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	_flash_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-	var black := LowPoly.unshaded(Color(0.0, 0.0, 0.0))
+	_flash_mat = ShadowBody.hit_flash_material()
+	var black := ShadowBody.skin_material()
 	_eye_mat = LowPoly.mat(VIOLET, 3.0).duplicate()
 	var hem: Array = FrayedOutfit.hem_chain({"heat": Hollowed.HEM_HEAT, "hot": Hollowed.HEM_HOT}, 5, false)
 	_hem_mats.assign(hem[1])

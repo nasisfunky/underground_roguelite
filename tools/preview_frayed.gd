@@ -1,6 +1,6 @@
 extends Node
 ## Entwickler-Werkzeug: rendert die Frayed-Shades aller Kulturen in einigen Posen als PNG.
-## Aufruf: godot --path . tools/preview_frayed.tscn -- <out_dir> [hell|dunkel]
+## Aufruf: godot --path . tools/preview_frayed.tscn -- <out_dir> [hell|dunkel] [nohem] [flash]
 
 const POSES := [["idle", &"", 0.0, 0.0, 0.0, 0.0], ["run", &"", 0.0, 4.8, 0.0, 0.0], ["guard", &"", 0.0, 0.0, 0.0, 1.0],
 	["swing", &"swing", 0.45, 0.0, 0.0, 1.0], ["block", &"", 0.0, 0.0, 1.0, 1.0], ["roll", &"roll", 0.3, 0.0, 0.0, 0.0]]
@@ -55,6 +55,11 @@ func _ready() -> void:
 			b.block_amount = pz[4]
 			b.combat = pz[5]
 			bodies.append(b)
+			if "flash" in args:
+				b.flash(999.0)
+			if "nohem" in args:
+				for n in b.find_children("HeadHem", "", true, false):
+					n.visible = false
 	for i in 60:
 		for b in bodies:
 			b.tick(1.0 / 60.0)
@@ -65,16 +70,16 @@ func _ready() -> void:
 		for b in bodies:
 			b.tick(1.0 / 60.0)
 	print("Tick pro Figur: %.2f ms" % ((Time.get_ticks_usec() - t0) / 1000.0 / (30.0 * bodies.size())))
-	var views := [["front", Vector3(0.0, 1.15, -2.6)], ["side", Vector3(2.4, 1.1, -0.9)], ["back", Vector3(-0.6, 1.2, 2.5)]]
+	var views := [["front", Vector3(0.0, 1.15, -2.6)], ["side", Vector3(2.4, 1.1, -0.9)], ["back", Vector3(-0.6, 1.2, 2.5)], ["face", Vector3(0.15, 1.55, -0.95)]]
 	for i in bodies.size():
 		var b := bodies[i]
 		for v in views:
-			if POSES[i % POSES.size()][0] != "idle" and v[0] == "back":
+			if POSES[i % POSES.size()][0] != "idle" and v[0] in ["back", "face"]:
 				continue
 			for o in bodies:
 				o.visible = o == b
 			cam.position = b.position + v[1]
-			cam.look_at(b.position + Vector3(0, 0.95, 0))
+			cam.look_at(b.position + Vector3(0, 1.48 if v[0] == "face" else 0.95, 0))
 			for k in 3:
 				b.tick(1.0 / 60.0)
 				await get_tree().process_frame
