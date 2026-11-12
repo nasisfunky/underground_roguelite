@@ -10,6 +10,7 @@ signal health_changed(current: float, maximum: float)
 @export var max_poise := 20.0
 @export var target_height := 2.1  ## Höhe für Zielmarker
 @export var radius := 0.45
+@export var body_height := 1.8  ## Höhe der Kollisionskapsel
 
 var health := 60.0
 var poise := 20.0
@@ -29,11 +30,11 @@ func _ready() -> void:
 	var col := CollisionShape3D.new()
 	var cap := CapsuleShape3D.new()
 	cap.radius = radius
-	cap.height = 1.8
+	cap.height = body_height
 	col.shape = cap
-	col.position.y = 0.9
+	col.position.y = body_height * 0.5
 	add_child(col)
-	var hb := Hurtbox.new(self, Game.LAYER_ENEMY_HURTBOX, cap, Vector3(0, 0.9, 0))
+	var hb := Hurtbox.new(self, Game.LAYER_ENEMY_HURTBOX, cap, Vector3(0, body_height * 0.5, 0))
 	add_child(hb)
 
 

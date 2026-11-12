@@ -1,10 +1,16 @@
-class_name Husk
+class_name Hollowed
 extends Enemy
-## Einfacher Nahkampfgegner: verfolgt den nächsten Spieler, holt deutlich sichtbar aus
+## Hollowed: humanoider Willfault. Behält die Form des Shades, aus dessen zerbrochenem Willen er entstand,
+## samt Resten seiner Ausrüstung (Kultur zufällig). Zersplitterter Schatten mit kalt-violetten Augen.
+## Duellgegner: verfolgt den nächsten Spieler, holt deutlich sichtbar aus
 ## (Augen glühen auf, Waffe hoch), schlägt zu und ist danach kurz verwundbar.
 ## Gut zum Testen von Blocken, Parieren und Rollen.
 
-signal respawn_requested(husk: Husk)
+signal respawn_requested(hollowed: Hollowed)
+
+const VIOLET := Color(0.72, 0.52, 1.0)
+const HEM_HEAT := "#1c0b3d"
+const HEM_HOT := "#9f6bff"
 
 enum S { IDLE, CHASE, WINDUP, STRIKE, RECOVER, STAGGER, DEAD }
 
@@ -30,7 +36,7 @@ var _player: Node3D
 
 
 func _ready() -> void:
-	display_name = "Hollow Shade"
+	display_name = "Hollowed"
 	max_health = 70.0
 	max_poise = 22.0
 	target_height = 1.95
@@ -38,18 +44,19 @@ func _ready() -> void:
 	facing_yaw = rotation.y
 	rotation = Vector3.ZERO
 	body = ShadowBody.new()
-	body.headgear = ShadowBody.Headgear.HORNED_HELM
-	body.eye_color = LowPoly.EYE_ORANGE
-	body.cloth_color = Color(0.36, 0.16, 0.12)
-	body.scarf_color = Color(0.20, 0.12, 0.10)
-	body.trim_color = LowPoly.OCHRE
+	body.outfit = FrayedOutfit.CULTURES.pick_random()
+	body.willfault = true
+	body.hem_layers = 4
+	body.head_layers = 12
+	body.hem_heat = HEM_HEAT
+	body.hem_hot = HEM_HOT
+	body.eye_color = VIOLET
 	body.has_shield = false
-	body.weapon_length = 0.85
 	body.run_speed_ref = 3.4
 	body.build()
 	body.scale = Vector3.ONE * 1.08
 	add_child(body)
-	body._trail.color = Color(1.0, 0.55, 0.25)
+	body._trail.color = Color(0.62, 0.42, 1.0)
 	_pivot = Node3D.new()
 	add_child(_pivot)
 	var box := BoxShape3D.new()

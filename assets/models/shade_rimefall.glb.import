@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://dcvuufqppnoea"
-path="res://.godot/imported/shade_parts.glb-5d8abe07c8ab46a7aaf64654437d515c.scn"
+uid="uid://djnmckugmyvjq"
+path="res://.godot/imported/shade_rimefall.glb-ec40526bfddefee7588d709a12f5f227.scn"
 
 [deps]
 
-source_file="res://assets/models/shade_parts.glb"
-dest_files=["res://.godot/imported/shade_parts.glb-5d8abe07c8ab46a7aaf64654437d515c.scn"]
+source_file="res://assets/models/shade_rimefall.glb"
+dest_files=["res://.godot/imported/shade_rimefall.glb-ec40526bfddefee7588d709a12f5f227.scn"]
 
 [params]
 

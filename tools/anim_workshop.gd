@@ -112,6 +112,7 @@ func _build_world() -> void:
 	add_child(ghost)
 
 	body = ShadowBody.new()
+	body.outfit = "kiln"  # gleiche Figur wie im Spiel (Frayed-Stil)
 	add_child(body)
 	body.build()
 	body.on_floor = true

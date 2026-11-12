@@ -10,14 +10,9 @@ extends Node3D
 ## Dadurch kann der Oberkörper zuschlagen, während die Beine weiterlaufen (Auto-Angriff wie in WoW).
 ## Der Controller setzt pro Tick die Eingangswerte unten und ruft tick(delta) auf.
 
-enum Headgear { HOOD, HORNED_HELM, WIDE_HAT }
 
 # --- Aussehen ---
-var cloth_color := Color(0.16, 0.30, 0.30)
-var scarf_color := Color(0.30, 0.17, 0.38)
-var trim_color := Color(0.42, 0.62, 0.60)
 var eye_color := LowPoly.EYE_YELLOW
-var headgear: Headgear = Headgear.HOOD
 var has_shield := true
 var weapon_length := 0.78
 ## Splitter-Laterne ("Shard Lantern") am linken Hüftgurt: eigenes Licht, kein Ausrüstungsplatz
@@ -25,6 +20,16 @@ var has_lantern := false
 var lantern_color := Color(1.0, 0.80, 0.52)
 var lantern_energy := 1.7
 var lantern_range := 8.5
+## Frayed-Stil: Kultur der Ausrüstung ("kiln", "rimefall", "glowmire"); leer = alter Stil (Hohlwandler)
+var outfit := ""
+var hem_layers := 6  ## Hüllen des Körpersaums
+var head_layers := 20  ## Hüllen der Kopfflamme (Frisur)
+var hem_heat := ""  ## Glimmfarbe überschreiben (leer = Kultur-Vorgabe)
+var hem_hot := ""
+## Willfault: zersplitterter Schatten eines gescheiterten Shades. Ohne Stoff, Lücken an den Gelenken,
+## schwebende Splitter, zuckende Bewegungen, Ausrüstung teils abgefallen und dunkel.
+var willfault := false
+var shard_mat: Material  ## Material der schwebenden Splitter (Willfault)
 
 # --- Eingänge vom Controller (pro Tick setzen) ---
 var speed := 0.0  ## horizontale Geschwindigkeit in m/s
@@ -56,9 +61,6 @@ var arm_up_l: Node3D
 var arm_lo_l: Node3D
 var arm_up_r: Node3D
 var arm_lo_r: Node3D
-var scarf_tail: Node3D
-var tabard_front: Node3D
-var tabard_back: Node3D
 var eye_mat: StandardMaterial3D
 var lantern: Node3D  ## Pendel-Knoten (hängt an der Hüfte)
 var lantern_light: OmniLight3D
@@ -66,7 +68,7 @@ var _lantern_core: MeshInstance3D
 var _sp_lan_x: Spring
 var _sp_lan_z: Spring
 
-# Proportionen (müssen zu tools/blender/build_shade.py passen)
+# Proportionen (müssen zu den Frayed-Modellen aus tools/frayed_export passen)
 const UPPER_ARM := 0.29
 const LOWER_ARM := 0.33
 const THIGH := 0.38
@@ -85,6 +87,7 @@ var GUARD_GRIP := _unscale(Vector3(0.30, 0.12, -0.32))
 var GUARD_DIR := Vector3(-0.12, 0.55, -0.85)
 var GUARD_SHIELD := _unscale(Vector3(-0.2, 0.2, -0.4))
 var GUARD_SHIELD_FRONT := Vector3(0.18, 0.05, -1.0)
+const OFFHAND_HOLD := Vector3(-0.25, 0.17, -0.34)  ## Griff des Laternenstabs (Brust-Koordinaten)
 const ROLL_SPIN := 0.7  ## Anteil der Rolle, in dem gedreht wird; danach Aufrichten
 const ROLL_PIVOT := 0.88  ## Drehpunkt der Rolle: Körpermitte (Hüfte + 0.1 m)
 
@@ -93,6 +96,7 @@ var _time := 0.0
 var _meshes: Array[MeshInstance3D] = []
 var _flash_t := 0.0
 var _flash_mat: StandardMaterial3D
+var _saved_overlays: Array[Material] = []  # Overlays (z. B. stumpfe Willfault-Ausrüstung) vor dem Blitz
 # geglättete Posenwerte
 var _springs_ready := false
 var _sp_grip: Spring
@@ -113,9 +117,8 @@ var _sp_rig_y: Spring
 var _sp_pivot: Spring
 var _sp_combat: Spring
 var _glue := 0.0
-var _sp_scarf: Spring
-var _sp_tab_f: Spring
-var _sp_tab_b: Spring
+var _sp_off: Spring
+var _sp_off_up: Spring
 var _prev_speed := 0.0
 var _prev_yaw := 0.0
 var _prev_vy := 0.0
@@ -124,110 +127,212 @@ var _hips_drop := 0.0
 var _lower_yaw := 0.0
 var _trail: SwordTrail
 var _overrides: Dictionary = {}
+# Frayed-Stil
+var outfit_info: Dictionary = {}
+var cloth: FrayedCloth
+var offhand: Node3D  ## Laternenstab (Glowmire) in der linken Hand
+var head_light: OmniLight3D
+var _hem_mats: Array[ShaderMaterial] = []
+var _lantern_offset := Vector3(-0.3, 0.2, 0.0)  ## Licht neben der Laterne (Körper-Koordinaten)
+var _grip_l := false
+var _shards: Array[Node3D] = []
+var _twitch := Vector3.ZERO
+var _twitch_t := 1.0
+var _rng := RandomNumberGenerator.new()
 
 
-const PARTS_PATH := "res://assets/models/shade_parts.glb"
+const SKIN_SHADER := preload("res://assets/shaders/shade_skin.gdshader")
+static var _skin_mat: ShaderMaterial
 
 
 func build() -> void:
-	_flash_mat = StandardMaterial3D.new()
-	_flash_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	_flash_mat.albedo_color = Color(1, 1, 1, 0.75)
-	_flash_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	_flash_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	_flash_mat = hit_flash_material()
 
-	var parts := ModelParts.load_parts(PARTS_PATH)
+	if outfit == "":
+		outfit = "kiln"
+	_build_frayed()
+
+
+## Trefferblitz als Overlay: kurzes warmes Aufglimmen, schwach genug, dass der Shade nie weiß wird.
+static func hit_flash_material() -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.albedo_color = Color(0.13, 0.085, 0.06)  # additiv: auf fast schwarz wirkt schon wenig sehr hell
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	return m
+
+
+## Schattenkörper: fast schwarz und matt, wird im Licht sichtbar heller, brennt aber nie weiß aus.
+static func skin_material() -> ShaderMaterial:
+	if _skin_mat == null:
+		_skin_mat = ShaderMaterial.new()
+		_skin_mat.shader = SKIN_SHADER
+	return _skin_mat
+
+
+## Frayed-Stil: schwarzer Körper mit Flammensaum, Ausrüstung der Kultur `outfit`, simulierte Stoffe.
+func _build_frayed() -> void:
+	_rng.randomize()
+	var data := FrayedOutfit.get_outfit(outfit)
+	outfit_info = data.info
+	var parts: Dictionary = data.parts
 	eye_mat = LowPoly.mat(eye_color, 2.6).duplicate()
-	# Materialnamen aus Blender -> Farben dieser Figur
-	_overrides = {
-		"Cloth": LowPoly.mat(cloth_color),
-		"ClothDark": LowPoly.mat(cloth_color.darkened(0.45)),
-		"Trim": LowPoly.mat(trim_color),
-		"Scarf": LowPoly.mat(scarf_color),
-		"Eye": eye_mat,
-		"Gem": LowPoly.mat(LowPoly.CYAN, 3.0),
-		"Void": LowPoly.unshaded(Color(0.008, 0.008, 0.012)),
-	}
+	eye_mat.cull_mode = BaseMaterial3D.CULL_DISABLED  # Augen-Dreiecke kommen aus dem Export umgekehrt gewickelt
+	_overrides = {"Skin": skin_material(), "Eye": eye_mat}
+	var body_hem: Array = FrayedOutfit.hem_chain(outfit_info, hem_layers, false, 1.3, hem_heat, hem_hot)
+	var head_hem: Array = FrayedOutfit.hem_chain(outfit_info, head_layers, true, 1.3, hem_heat, hem_hot)
+	_hem_mats.assign(body_hem[1] + head_hem[1])
+	weapon_length = outfit_info.get("weaponLength", weapon_length)
+	var grips: Array = outfit_info.get("gripHands", ["R"])
+	_grip_l = grips.has("L")
 
 	rig = Node3D.new()
 	rig.name = "Rig"
 	rig.position.y = RIG_Y
 	add_child(rig)
-
-	hips = Node3D.new()
-	hips.position.y = HIPS_Y
-	rig.add_child(hips)
-	_part(parts, "Pelvis", hips)
-
-	tabard_front = Node3D.new()
-	tabard_front.position = Vector3(0, 0.08, -0.12)
-	hips.add_child(tabard_front)
-	_part(parts, "TabardFront", tabard_front)
-	tabard_back = Node3D.new()
-	tabard_back.position = Vector3(0, 0.08, 0.12)
-	hips.add_child(tabard_back)
-	_part(parts, "TabardBack", tabard_back)
-
+	hips = _joint(rig, Vector3(0, HIPS_Y, 0))
 	hip_l = _joint(hips, Vector3(-0.085, 0, 0))
-	_part(parts, "ThighL", hip_l)
 	knee_l = _joint(hip_l, Vector3(0, -THIGH, 0))
-	_part(parts, "ShinL", knee_l)
 	hip_r = _joint(hips, Vector3(0.085, 0, 0))
-	_part(parts, "ThighR", hip_r)
 	knee_r = _joint(hip_r, Vector3(0, -THIGH, 0))
-	_part(parts, "ShinR", knee_r)
-
 	chest = _joint(hips, Vector3(0, CHEST_Y, 0))
-	_part(parts, "Torso", chest)
-	_part(parts, "Mantle", chest)
-	_part(parts, "Scarf", chest)
-	scarf_tail = _joint(chest, Vector3(0.08, 0.52, 0.17))
-	_part(parts, "ScarfTail", scarf_tail)
-
 	head = _joint(chest, Vector3(0, HEAD_Y, 0))
-	_part(parts, "Head", head)
-	_part(parts, "Eyes", head)
-	match headgear:
-		Headgear.HOOD:
-			_part(parts, "Hood", head)
-		Headgear.HORNED_HELM:
-			_part(parts, "HornedHelm", head)
-		Headgear.WIDE_HAT:
-			_part(parts, "WideHat", head).position.y = 0.064
-	var glow := OmniLight3D.new()
-	glow.light_color = eye_color
-	glow.light_energy = 0.35
-	glow.omni_range = 0.7
-	glow.position = Vector3(0, 0, -0.28)
-	head.add_child(glow)
-
-	# Arme hängen direkt an diesem Knoten und werden per IK gesetzt
 	arm_up_l = _joint(self, Vector3.ZERO)
-	_part(parts, "UpperArmL", arm_up_l)
 	arm_lo_l = _joint(self, Vector3.ZERO)
-	_part(parts, "ForearmL", arm_lo_l)
 	arm_up_r = _joint(self, Vector3.ZERO)
-	_part(parts, "UpperArmR", arm_up_r)
 	arm_lo_r = _joint(self, Vector3.ZERO)
-	_part(parts, "ForearmR", arm_lo_r)
+	var joints := {"hips": hips, "chest": chest, "head": head, "hip_l": hip_l, "knee_l": knee_l, "hip_r": hip_r, "knee_r": knee_r,
+		"arm_up_l": arm_up_l, "arm_lo_l": arm_lo_l, "arm_up_r": arm_up_r, "arm_lo_r": arm_lo_r}
+	for jn in joints:
+		var parent: Node3D = joints[jn]
+		# Hand, die etwas greift: Unterarm etwas länger, damit die Faust am Griff sitzt
+		var grip_scale := Vector3.ONE
+		if (jn == "arm_lo_r" and grips.has("R")) or (jn == "arm_lo_l" and grips.has("L")):
+			grip_scale = Vector3(1, 1.1, 1)
+		var sn: String = "S_" + jn
+		if parts.has(sn):
+			var mi := _part(parts, sn, parent)
+			mi.scale = grip_scale
+			if data.has_hem.get(sn, false):
+				var hm := MeshInstance3D.new()
+				hm.name = "Hem"
+				hm.mesh = parts[sn]
+				hm.material_override = body_hem[0]
+				hm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+				hm.scale = grip_scale
+				parent.add_child(hm)
+		if parts.has("G_" + jn):
+			var g := _part(parts, "G_" + jn, parent)
+			g.scale = grip_scale
+			if willfault:
+				# Reste der alten Ausrüstung: manches fehlt, der Rest ist stumpf und dunkel
+				if jn in ["arm_up_l", "arm_lo_l", "hip_r"] and _rng.randf() < 0.6:
+					g.visible = false
+				g.material_overlay = _dim_mat()
+		if willfault and jn in ["arm_lo_l", "arm_lo_r", "knee_l", "knee_r"]:
+			# Lücke am Gelenk: Teile sitzen ein Stück versetzt
+			for c in parent.get_children():
+				if c is MeshInstance3D:
+					(c as MeshInstance3D).position.y -= 0.035
+	if parts.has("HeadHem"):
+		var hh := MeshInstance3D.new()
+		hh.name = "HeadHem"
+		hh.mesh = parts["HeadHem"]
+		hh.material_override = head_hem[0]
+		hh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		head.add_child(hh)
+	head_light = OmniLight3D.new()
+	head_light.light_color = Color.html(hem_hot if hem_hot != "" else outfit_info.get("hot", "#ff5464"))
+	head_light.light_energy = 0.45
+	head_light.omni_range = 1.4
+	head_light.position = Vector3(0, 0.2, 0.05)
+	head.add_child(head_light)
 
 	sword = _joint(chest, Vector3.ZERO)
-	_part(parts, "Sword", sword).scale = Vector3.ONE * (weapon_length / 0.78)
-	if has_shield:
+	_part(parts, "Weapon", sword)
+	if has_shield and parts.has("Shield"):
 		shield = _joint(chest, Vector3.ZERO)
-		_part(parts, "Shield", shield)
+		_part(parts, "Shield", shield).position.z = -0.05
+	else:
+		has_shield = false
+	if parts.has("Offhand") and not willfault:
+		offhand = _joint(chest, OFFHAND_HOLD)
+		_part(parts, "Offhand", offhand)
+		if has_lantern and outfit_info.has("offhandLantern"):
+			var ol: Dictionary = outfit_info.offhandLantern
+			var hook := _joint(offhand, Vector3(ol.pos[0], ol.pos[1], ol.pos[2]))
+			lantern = _joint(hook, Vector3.ZERO)
+			var lm := _part(parts, "OffhandLantern", lantern)
+			_lantern_core = MeshInstance3D.new()
+			_lantern_core.position = Vector3(ol.light[0], ol.light[1], ol.light[2])
+			lantern.add_child(_lantern_core)
+			lm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			lm.layers = LANTERN_LAYER
+			_lantern_offset = Vector3(0.0, 0.1, 0.0)
+			_add_lantern_light()
 
 	_trail = SwordTrail.new()
 	add_child(_trail)
-
-	if has_lantern:
+	if has_lantern and lantern == null:
 		_build_lantern()
+	if willfault:
+		_build_shards()
+		return
+	cloth = FrayedCloth.new()
+	cloth.setup(self, outfit_info, parts, joints)
+
+
+func _dim_mat() -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.albedo_color = Color(0.0, 0.0, 0.01, 0.55)
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	return m
+
+
+## Schwebende Schattensplitter um Rumpf und Kopf, glimmen am Rand im Willfault-Violett.
+func _build_shards() -> void:
+	var black := skin_material()
+	var edge := shard_mat if shard_mat else LowPoly.mat(eye_color, 2.0)
+	for i in 7:
+		var piv := _joint(chest if i < 5 else head, Vector3.ZERO)
+		var sh := Node3D.new()
+		piv.add_child(sh)
+		var h := _rng.randf_range(0.07, 0.15)
+		var m := LowPoly.mesh_instance(LowPoly.crystal(h, h * 0.28), black, sh)
+		var tip := LowPoly.mesh_instance(LowPoly.crystal(h * 0.35, h * 0.1), edge, sh, Vector3(0, h * 0.75, 0))
+		tip.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_meshes.append(m)
+		sh.set_meta("r", _rng.randf_range(0.26, 0.36) if i < 5 else _rng.randf_range(0.2, 0.26))
+		sh.set_meta("y", _rng.randf_range(0.15, 0.5) if i < 5 else _rng.randf_range(0.0, 0.18))
+		sh.set_meta("a", _rng.randf() * TAU)
+		sh.set_meta("w", _rng.randf_range(0.5, 1.2) * (1.0 if _rng.randf() < 0.5 else -1.0))
+		sh.rotation = Vector3(_rng.randf_range(-1, 1), _rng.randf() * TAU, _rng.randf_range(-1, 1))
+		_shards.append(sh)
+
+
+func _update_willfault(delta: float) -> void:
+	for sh in _shards:
+		var a: float = sh.get_meta("a") + delta * float(sh.get_meta("w"))
+		sh.set_meta("a", a)
+		var r: float = sh.get_meta("r")
+		sh.position = Vector3(cos(a) * r, float(sh.get_meta("y")) + sin(_time * 1.7 + a) * 0.03, sin(a) * r)
+		sh.rotate_y(delta * 1.3)
+	# Zucken: kurze, ruckartige Verdrehungen von Kopf und Rumpf
+	_twitch_t -= delta
+	if _twitch_t <= 0.0:
+		_twitch_t = _rng.randf_range(0.6, 2.2)
+		_twitch = Vector3(_rng.randf_range(-0.35, 0.35), _rng.randf_range(-0.5, 0.5), _rng.randf_range(-0.3, 0.3))
+	_twitch = _twitch.lerp(Vector3.ZERO, 1.0 - exp(-7.0 * delta))
+	head.rotation += _twitch
+	chest.rotation.z += _twitch.z * 0.3
 
 
 ## Kleine Käfiglaterne mit leuchtendem Kristallsplitter, an einem kurzen Riemen.
 func _build_lantern() -> void:
 	var metal := LowPoly.mat(Color(0.09, 0.08, 0.07), 0.0, 0.6)
-	var strap := LowPoly.mat(cloth_color.darkened(0.55))
+	var strap := LowPoly.mat(Color(0.07, 0.07, 0.07))
 	var hook := _joint(hips, Vector3(-0.2, 0.03, 0.05))
 	hook.rotation.y = 0.35
 	LowPoly.mesh_instance(LowPoly.box(Vector3(0.05, 0.1, 0.07)), strap, hook)  # Gurtschlaufe
@@ -259,6 +364,10 @@ func _build_lantern() -> void:
 			(n as MeshInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			(n as MeshInstance3D).layers = LANTERN_LAYER
 
+	_add_lantern_light()
+
+
+func _add_lantern_light() -> void:
 	lantern_light = OmniLight3D.new()
 	lantern_light.name = "LanternLight"
 	lantern_light.light_color = lantern_color
@@ -291,7 +400,7 @@ func _update_lantern(delta: float, s: float, accel: float, yaw_rate: float) -> v
 	lantern.rotation = Vector3(_u(_sp_lan_x, delta, tx), 0.0, _u(_sp_lan_z, delta, tz))
 	# Licht sitzt ruhig neben der Laterne (etwas außen, damit das eigene Bein kaum Schatten wirft)
 	var core := _lantern_core.global_position
-	var out := global_basis.x * -0.3 + Vector3.UP * 0.2
+	var out := global_basis * Vector3(_lantern_offset.x, 0.0, _lantern_offset.z) + Vector3.UP * _lantern_offset.y
 	lantern_light.global_position = core + out
 	# leichtes, lebendiges Flackern des Splitters
 	var flick := 1.0 + sin(_time * 7.3) * 0.025 + sin(_time * 12.9 + 1.3) * 0.02
@@ -319,9 +428,12 @@ func _part(parts: Dictionary, part_name: String, parent: Node) -> MeshInstance3D
 
 
 func flash(duration := 0.09) -> void:
+	if _flash_t <= 0.0:
+		_saved_overlays.clear()
+		for m in _meshes:
+			_saved_overlays.append(m.material_overlay)
+			m.material_overlay = _flash_mat
 	_flash_t = duration
-	for m in _meshes:
-		m.material_overlay = _flash_mat
 
 
 func set_eye_intensity(v: float) -> void:
@@ -359,9 +471,8 @@ func _init_springs() -> void:
 	_sp_pivot = Spring.new(5.0, 1.0, 1.0, RIG_Y)
 	_sp_combat = Spring.new(1.6, 1.0, 1.0, 0.0)  # Kampfhaltung baut sich in ~0,4 s auf
 	# Stoff: weich und schwingend
-	_sp_scarf = Spring.new(1.6, 0.3, 1.0, 0.3)
-	_sp_tab_f = Spring.new(2.4, 0.35, 1.0, 0.0)
-	_sp_tab_b = Spring.new(2.0, 0.3, 1.0, 0.0)
+	_sp_off = Spring.new(3.0, 0.8, 1.0, OFFHAND_HOLD)
+	_sp_off_up = Spring.new(2.5, 0.6, 1.0, Vector3(0.0, 1.0, -0.08))
 	_springs_ready = true
 
 
@@ -374,8 +485,8 @@ func tick(delta: float) -> void:
 	if _flash_t > 0.0:
 		_flash_t -= delta
 		if _flash_t <= 0.0:
-			for m in _meshes:
-				m.material_overlay = null
+			for i in _meshes.size():
+				_meshes[i].material_overlay = _saved_overlays[i] if i < _saved_overlays.size() else null
 
 	# --- Bewegungsdaten ableiten: Beschleunigung, Drehrate, Landung ---
 	var accel := (speed - _prev_speed) / delta
@@ -561,6 +672,16 @@ func tick(delta: float) -> void:
 		kl -= 0.22 * b * (1.0 - wm)
 		kr -= 0.18 * b * (1.0 - wm)
 		hand_f = maxf(hand_f, 7.0)
+	elif block_amount > 0.0 and offhand and action != &"swing":
+		# ohne Schild: Klinge quer vor den Körper, Laternenstab zurück
+		var b := block_amount * block_amount * (3.0 - 2.0 * block_amount)
+		grip = grip.lerp(Vector3(0.24, 0.12, -0.36), b)
+		sdir = sdir.lerp(Vector3(-1.0, 0.3, -0.25), b)
+		sflat = sflat.lerp(Vector3(0, 0.3, -1.0), b)
+		sh_pos = sh_pos.lerp(Vector3(-0.32, -0.1, -0.08), b)
+		lean -= 0.1 * b
+		hips_drop += 0.06 * b
+		hand_f = maxf(hand_f, 7.0)
 
 	# --- Federn anwenden ---
 	_sp_grip.set_params(hand_f, 0.8, 1.1)
@@ -625,19 +746,22 @@ func tick(delta: float) -> void:
 	if absf(_glue) > 0.0005 or ground_glue:
 		rig.position.y += _glue
 
-	# Stoff schwingt mit Trägheit nach
-	var cloth_drive := minf(s, 1.2)
-	var tf: float = _u(_sp_tab_f, delta, maxf(hl.x, hr.x) * 0.55 + 0.05 - ln * 0.3 + clampf(accel * 0.02, -0.4, 0.4))
-	var tb: float = _u(_sp_tab_b, delta, minf(hl.x, hr.x) * 0.55 - 0.05 - 0.3 * cloth_drive - ln * 0.3 + clampf(accel * 0.02, -0.4, 0.4))
-	tabard_front.rotation.x = tf
-	tabard_back.rotation.x = tb
-	var sc: float = _u(_sp_scarf, delta, 0.25 + 0.9 * cloth_drive - vertical_velocity * 0.06 + clampf(accel * 0.03, -0.5, 0.5))
-	scarf_tail.rotation = Vector3(sc + sin(_time * 8.0) * 0.08 * cloth_drive, 0.0, bk * 1.5)
 	_update_lantern(delta, s, accel, yaw_rate)
 
 	sword.transform = Transform3D(_basis_from(-d.normalized(), f.normalized()), g)
 	if has_shield:
 		shield.transform = Transform3D(_basis_from(-sf.normalized(), Vector3.UP, true), sp)
+	elif offhand:
+		# Laternenstab: vor dem Körper gehalten, Stab fast senkrecht; Rolle/Stoß/Block nutzen die Schild-Pose
+		var hold_t := OFFHAND_HOLD + Vector3(0, sin(_phase * 2.0) * 0.012 * wm, sin(_phase + PI) * 0.04 * minf(s, 1.0) * wm)
+		if action in [&"roll", &"bash", &"stagger", &"dead"] or block_amount > 0.05:
+			hold_t = sp
+		var hold: Vector3 = _u(_sp_off, delta, hold_t)
+		var up_t := Vector3(0.0, 1.0, -0.08) if action != &"roll" else Vector3(-0.7, 0.5, 0.1)
+		var pole_up: Vector3 = _u(_sp_off_up, delta, up_t)
+		pole_up = pole_up.normalized()
+		var pz := (Vector3(0, 0, 1) - pole_up * pole_up.z).normalized()
+		offhand.transform = Transform3D(_basis_from(pz, pole_up, true), hold)
 
 	# --- Arm-IK ---
 	var cb := chest.global_basis
@@ -647,6 +771,8 @@ func tick(delta: float) -> void:
 	_solve_arm(arm_up_r, arm_lo_r, chest.global_transform * SHOULDER_R, sword.global_transform * Vector3(0, 0, 0.02), cb * pole_r)
 	if has_shield:
 		_solve_arm(arm_up_l, arm_lo_l, chest.global_transform * SHOULDER_L, shield.global_transform * Vector3(0, 0, 0.07), cb * Vector3(-0.8, -1.0, 0.4))
+	elif offhand:
+		_solve_arm(arm_up_l, arm_lo_l, chest.global_transform * SHOULDER_L, offhand.global_position, cb * Vector3(-0.8, -1.0, 0.4))
 	else:
 		var swing_l := sin(_phase) * 0.08 * minf(s, 1.0) * wm
 		_solve_arm(arm_up_l, arm_lo_l, chest.global_transform * SHOULDER_L, chest.global_transform * Vector3(-0.27, 0.0, -0.05 + swing_l), cb * Vector3(-0.8, -1.0, 0.4))
@@ -654,6 +780,21 @@ func tick(delta: float) -> void:
 	if _trail.emitting or _trail.has_points():
 		var pts := sword_points()
 		_trail.push(pts[0], pts[1], delta)
+	if cloth:
+		cloth.update(delta)
+	if willfault:
+		_update_willfault(delta)
+	if head_light:
+		head_light.light_energy = 0.45 * (1.0 + 0.35 * sin(_time * 11.3) * sin(_time * 7.1 + 1.0))
+
+
+func _process(_delta: float) -> void:
+	if _hem_mats.is_empty():
+		return
+	# Flammenmuster bewegt sich mit der Figur (interpolierte Lage, sonst ruckelt es bei hoher Bildrate)
+	var o := get_global_transform_interpolated().origin if is_inside_tree() else global_position
+	for m in _hem_mats:
+		m.set_shader_parameter("origin", o)
 
 
 ## Tiefster Punkt des Körpers (ohne Waffe/Schild) relativ zum Boden der Figur.

@@ -1,6 +1,6 @@
 class_name ModelParts
 extends RefCounted
-## Lädt die in Blender gebauten Teile (tools/blender/build_shade.py) aus einer .glb
+## Lädt die in Blender gebauten Teile (tools/blender/build_dummy.py) aus einer .glb
 ## und liefert sie als Name -> Mesh. Wird pro Datei nur einmal geladen.
 
 static var _cache: Dictionary = {}

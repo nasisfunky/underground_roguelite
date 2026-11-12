@@ -61,11 +61,6 @@ func light_level_at(pos: Vector3) -> float:
 	return total
 
 
-func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed("toggle_control_mode"):
-		pass  # klassische Drehung entfällt mit der Action-Steuerung
-
-
 # --- Eingabebelegung ---
 # Per Code, damit sie versioniert und leicht änderbar ist. Physische Tasten,
 # damit WASD auch auf QWERTZ/AZERTY an der gleichen Stelle liegt.
@@ -82,7 +77,7 @@ func _setup_input() -> void:
 	for i in range(1, 10):
 		_key("ability_%d" % i, [KEY_0 + i])
 	_key("toggle_help", [KEY_F1])
-	_key("toggle_control_mode", [KEY_F2])
+	_key("cycle_culture", [KEY_F2])
 	_key("toggle_debug", [KEY_F3])
 	_key("pause", [KEY_ESCAPE])
 	_mouse("block", MOUSE_BUTTON_RIGHT)
