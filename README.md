@@ -54,6 +54,28 @@ verlagert sein Gewicht kurz vor dem Treffer nach vorn.
      Seitlich ausweichen oder rollen, danach ist er kurz wehrlos.
    Besiegte Gegner erscheinen nach einigen Sekunden neu.
 
+## Bestiarium: neue Willfaults
+
+`scenes/bestiary.tscn` (oder `Willfault Bestiary.bat`) zeigt die drei neuen Willfaults in einer dunklen Halle.
+Sie ersetzen noch keine Gegner und haben noch keine Kampf-KI.
+
+- **Grimhauler**: verzerrter Koloss aus Schattenflamme, schleift seine Axt (Funken) und schlägt über Kopf zu.
+  Die Schneide glüht vorher weiß-violett auf: Der Schlag ist nicht blockbar. Einschlag mit Schockwelle.
+- **Hollow One**: verblassender Wille in der alten Ausrüstung eines Shades (Kiln, Rimefall oder Glowmire,
+  verschmutzt und zerrissen). Heller Geisterschleier ohne Beine, schwebt, Augen als schwarze Kreise mit weißem Rand.
+- **Willambers**: hagere Wesen aus wabernden Schatten mit leuchtenden Augen. Tauchen aus Schattenlachen auf,
+  springen sprunghaft umher, greifen im Schwarm an und tauchen wieder ab.
+
+| Eingabe | Aktion |
+|---|---|
+| Linke Maustaste ziehen / Mausrad | Kamera drehen / Zoom |
+| 1 / 2 / 3 | Grimhauler / Hollow One / Willambers |
+| Leertaste | unterwegs ↔ Angriff |
+| L | helles ↔ dunkles Licht |
+| C | Kultur des Hollow One wechseln |
+
+Modelle: `assets/models/willfaults/*.glb` aus der Konzeptseite, Export siehe `tools/willfault_export/README.md`.
+
 ## Spielfigur im Frayed-Stil
 
 Die Shades sind manifestierte Schatten: schwarzer Körper mit flackerndem Flammensaum, am Kopf als

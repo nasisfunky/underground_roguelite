@@ -20,6 +20,11 @@ var seat: Array = []  ## Hosensitz/Becken-Querschnitte
 var pad := 0.04
 var hip_pad := 0.03
 var leg_pad := 0.02
+var legs := true  ## false: keine Bein-Kapseln (Hollow One schwebt ohne Beine)
+var torn := false  ## zerrissene, ausgefranste Säume und Löcher (verbrauchte Ausrüstung)
+var _tear_rng := RandomNumberGenerator.new()
+var floor_from_body := true  ## false: Boden liegt bei floor_y (schwebende Figur)
+var floor_y := 0.0
 
 # Partikel
 var p := PackedVector3Array()
@@ -115,6 +120,8 @@ func _add_cloth(c: Dictionary, parts: Dictionary, joints: Dictionary) -> void:
 		var src: Mesh = parts.get(c.mat)
 		if src:
 			mi.material_override = src.surface_get_material(0)
+			if torn and mi.material_override is StandardMaterial3D:
+				mi.material_override = ShadowBody.worn_material(mi.material_override, _tear_rng.randf() * 10.0)
 		mi.extra_cull_margin = 1.0
 		body.add_child(mi)
 		body._meshes.append(mi)
@@ -132,8 +139,18 @@ func _add_cloth(c: Dictionary, parts: Dictionary, joints: Dictionary) -> void:
 		for r in rr:
 			for i in rc:
 				uv.append(Vector2(float(i) / (rc - 1) * us, v0 + float(r) / (rr - 1) * vs))
+		# zerrissen: jede Spalte endet unterschiedlich tief, dazu ein paar Löcher
+		var cut := PackedFloat32Array()
+		var phase := _tear_rng.randf() * TAU
+		for i in rc - 1:
+			var u := float(i) / maxf(rc - 2, 1)
+			cut.append(rr - 1 - (rr - 1) * (0.12 + 0.2 * absf(sin(u * 9.0 + phase)) + 0.14 * _tear_rng.randf()) if torn else float(rr - 1))
 		for r in rr - 1:
 			for i in rc - 1:
+				if r >= cut[i]:
+					continue
+				if torn and r > 2 and r < cut[i] - 2 and _tear_rng.randf() < 0.035:
+					continue
 				var a := r * rc + i
 				var cc := a + rc
 				# Godot: Vorderseite im Uhrzeigersinn
@@ -149,6 +166,8 @@ func _add_cloth(c: Dictionary, parts: Dictionary, joints: Dictionary) -> void:
 		for sn in c.segs:
 			var smi := MeshInstance3D.new()
 			smi.mesh = parts.get(sn)
+			if torn:
+				ShadowBody.wear(smi, 1.0)
 			body.add_child(smi)
 			body._meshes.append(smi)
 			segs.append(smi)
@@ -157,6 +176,8 @@ func _add_cloth(c: Dictionary, parts: Dictionary, joints: Dictionary) -> void:
 	if c.has("end"):
 		var emi := MeshInstance3D.new()
 		emi.mesh = parts.get(c.end)
+		if torn:
+			ShadowBody.wear(emi, 2.0)
 		body.add_child(emi)
 		body._meshes.append(emi)
 		d.end = emi
@@ -251,12 +272,15 @@ func _prep() -> void:
 	_hips = body.hips.global_transform
 	_hips_inv = _hips.affine_inverse()
 	_head = body.head.global_position
-	_floor = body.global_position.y + 0.015 if body.on_floor else -INF
+	if floor_from_body:
+		_floor = body.global_position.y + 0.015 if body.on_floor else -INF
+	else:
+		_floor = floor_y + 0.015
 	_cap_a.clear()
 	_cap_b.clear()
 	_cap_r.clear()
 	var lp := leg_pad
-	for side in [[body.hip_l, body.knee_l], [body.hip_r, body.knee_r]]:
+	for side in ([[body.hip_l, body.knee_l], [body.hip_r, body.knee_r]] if legs else []):
 		var hip: Node3D = side[0]
 		var knee: Node3D = side[1]
 		_cap(hip.global_position, knee.global_position, 0.085 + lp, 0.05 + lp)
