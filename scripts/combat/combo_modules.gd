@@ -36,6 +36,16 @@ static func make(id: StringName) -> ComboModule:
 	return null
 
 
+## Letzter Trefferzeitpunkt eines Clips: Bausteine mit mehreren Treffern (z. B. Flurry) legen sie selbst fest.
+static func last_hit_for_clip(clip_name: String, fallback: float) -> float:
+	var best := -1.0
+	for id in all_ids():
+		var m := make(id)
+		if m.clip == clip_name and not m.hits.is_empty():
+			best = maxf(best, m.hits[m.hits.size() - 1])
+	return best if best >= 0.0 else fallback
+
+
 ## Darf der Baustein mit dieser Waffe benutzt werden?
 static func usable(id: StringName, weapon: WeaponDef) -> bool:
 	var m := make(id)

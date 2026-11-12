@@ -62,7 +62,11 @@ enum State { MOVE, ROLL, ABILITY, STAGGER, DEAD, CLIMB, LEDGE_UP, SWIM, KNOCKDOW
 @export var swing_cost := 14.0  # Ausdauer pro Hieb
 @export var combo_window := 0.68  # ab hier (normiert) schließt ein vorgemerkter Hieb direkt an
 @export var combo_reset := 0.45  # s nach Hiebende, bis die Kombo wieder mit der Vorhand beginnt
-@export var attack_buffer_time := 0.5  # so lange vor dem Kombofenster darf schon geklickt werden
+@export var attack_buffer_time := 0.5  # außerhalb eines Schlags: so lange bleibt ein Klick vorgemerkt (z. B. während der Rolle)
+## Während eines Schlags bleibt ein Klick vorgemerkt, bis der nächste Schlag anschließen darf (geht nie verloren).
+@export var move_cancel_after := 0.1  ## so lange (normiert) nach dem Anschlusspunkt beendet Laufen den Nachlauf
+@export var aim_assist_deg := 30.0  ## Zielhilfe: Schlag dreht zum Gegner, der höchstens so weit neben der Kamerarichtung steht (0 = aus)
+@export var aim_assist_range := 1.6  ## ... und höchstens so weit hinter der Reichweite steht (m)
 @export var attack_move_mult := 0.2  # Laufen während eines Hiebs (gewichtig: fast stehen)
 @export var swing_lunge := 1.6  # m/s Vorwärtsschub kurz vor dem Treffer
 @export var thrust_damage_mult := 1.5
@@ -155,6 +159,7 @@ var _swing_yaw := 0.0  # Angriffsrichtung (Kamera)
 var _since_swing := 10.0
 var _queued_attack := 0
 var _queued_t := 0.0
+var _block_held_at_swing := false  ## Deckung war beim Schlagbeginn gehalten -> sie bricht diesen Schlag nicht ab
 var _nearby: Node3D  ## nächster Gegner in Kampfnähe (nur für Haltung/Blick, kein Anvisieren)
 var _swing_hit_done := false
 var _anim_hitstop := 0.0
@@ -472,7 +477,8 @@ func _read_input(delta: float) -> void:
 	if atk > 0:
 		_queued_attack = atk
 		_queued_t = attack_buffer_time
-	if _queued_t > 0.0:
+	# Während eines Schlags verfällt ein Klick nicht: er wartet auf den Anschlusspunkt des Schlags
+	if _queued_t > 0.0 and not (_swing_t >= 0.0 and state == State.MOVE):
 		_queued_t -= delta
 		if _queued_t <= 0.0:
 			_queued_attack = 0
@@ -569,9 +575,15 @@ func _state_move(delta: float) -> void:
 	var dir := _desired_direction(delta)
 
 	# Blocken (halten): zieht Waffe und Schild; geblockt wird erst, wenn sie in der Hand sind
-	var want_block: bool = input != null and input.block_held and is_on_floor() and can_cancel_swing()
+	var held: bool = input != null and input.block_held
+	if not held:
+		_block_held_at_swing = false
+	var want_block: bool = held and is_on_floor() and can_cancel_swing()
 	if want_block and _swing_t >= 0.0:
-		_cancel_swing()  # Schlag zugunsten der Deckung abbrechen
+		if _block_held_at_swing:
+			want_block = false  # aus der Deckung angegriffen: Schlag läuft durch, danach hebt sich die Deckung wieder
+		else:
+			_cancel_swing()  # neu gedrückt: Schlag zugunsten der Deckung abbrechen
 	if want_block:
 		_ensure_drawn()
 		var shield_coming: bool = body.has_shield and body.want_off == &"shield"
@@ -579,6 +591,9 @@ func _state_move(delta: float) -> void:
 	if want_block and not _blocking:
 		_blocking = true
 		_block_t = 0.0
+		if _block_held_at_swing:
+			_block_t = parry_window + 0.01  # Deckung hebt sich nach dem Schlag von selbst wieder: keine Parade
+			_block_held_at_swing = false
 	elif not want_block and _blocking:
 		_blocking = false
 		_block_released_t = 0.0
@@ -612,6 +627,10 @@ func _state_move(delta: float) -> void:
 		if _module:
 			want_vel += _module.extra_velocity(self, _swing_t / swing_duration)
 	_horizontal_move(want_vel, delta)
+
+	# Nachlauf durch Laufen beenden: nach dem Anschlusspunkt (Durchzug ist vorbei) geht die Figur direkt los
+	if _swing_t >= 0.0 and _queued_attack == 0 and dir.length() > 0.5 and _swing_t / swing_duration >= combo_window + move_cancel_after:
+		_end_swing()
 
 	# Klettern: gegen eine Kletterfläche laufen (Gitter, Flechten)
 	if dir.length() > 0.3 and _swing_t < 0.0 and _try_start_climb(dir):
@@ -1085,13 +1104,16 @@ func _can_start_attack() -> bool:
 func _start_attack(kind: int) -> void:
 	_queued_attack = 0
 	_queued_t = 0.0
+	_block_held_at_swing = _blocking or (input != null and input.block_held)
 	_blocking = false
+	var chained := _swing_t >= 0.0  # schließt direkt an einen laufenden Schlag an
 	_module = null
 	_hit_i = 0
+	body.swing_serial += 1
 	if kind == 1:
 		var slot := next_chain_slot()
 		if slot >= 0:
-			_start_module(slot)
+			_start_module(slot, chained)
 			return
 	combo_window = 0.68
 	if kind == 2:
@@ -1107,16 +1129,19 @@ func _start_attack(kind: int) -> void:
 	_swing_hit_done = false
 	_since_swing = 0.0
 	_spend_stamina(thrust_cost if kind == 2 else swing_cost)
-	_swing_yaw = camera_yaw()
-	# Dauer und Trefferzeitpunkt kommen aus der Animation (Animationswerkstatt)
+	_swing_yaw = _aim_yaw(camera_yaw(), melee_range + 0.3)
+	# Dauer, Trefferzeitpunkt und Anschluss kommen aus der Animation (Animationswerkstatt)
 	_swing_clip = AnimLibrary.resolve(AnimLibrary.CLIPS[_swing_index], String(weapon.id))
 	var c: Dictionary = AnimLibrary.clip(_swing_clip)
 	swing_duration = c.duration
 	swing_hit_at = c.hit
+	combo_window = ComboModule.link_point(c, c.hit)
+	if chained:
+		_swing_t = ComboModule.chain_start(c, c.hit) * swing_duration
 
 
 ## Baustein aus der Kette starten.
-func _start_module(slot: int) -> void:
+func _start_module(slot: int, chained := false) -> void:
 	var m := ComboModules.make(combo_chain[slot])
 	_module = m
 	_chain_pos = slot
@@ -1126,11 +1151,13 @@ func _start_module(slot: int) -> void:
 	_swing_t = 0.0
 	_swing_hit_done = false
 	_since_swing = 0.0
-	_swing_yaw = camera_yaw()
 	m.setup(self)
+	_swing_yaw = _aim_yaw(camera_yaw(), m.eff_reach(self))
 	swing_duration = m.duration
 	swing_hit_at = m.hits[0]
 	combo_window = m.window
+	if chained:
+		_swing_t = m.chain_in * swing_duration  # Teil der Ausholbewegung entfällt, der vorige Schlag bringt Schwung mit
 	_swing_index = maxi(AnimLibrary.CLIPS.find(m.clip), 0)
 	_swing_clip = m.clip_for(self)
 	_spend_stamina(m.cost * weapon.cost)
@@ -1150,6 +1177,40 @@ func _lunge_speed() -> float:
 		return 0.0
 	var x := (t - a) / 0.2
 	return (thrust_lunge if _swing_kind == 2 else swing_lunge) * sin(clampf(x, 0.0, 1.0) * PI)
+
+
+## Zielhilfe (kein Anvisieren): steht ein Gegner knapp neben der Kamerarichtung, zielt der Schlag auf ihn.
+func _aim_yaw(yaw: float, reach: float) -> float:
+	if aim_assist_deg <= 0.0:
+		return yaw
+	var fwd := Vector3(-sin(yaw), 0.0, -cos(yaw))
+	var best_score := INF
+	var best_yaw := yaw
+	for n in get_tree().get_nodes_in_group("enemies"):
+		var e := n as Enemy
+		if e == null or e.is_dead():
+			continue
+		var to: Vector3 = e.global_position - global_position
+		if absf(to.y) > 2.0:
+			continue
+		to.y = 0.0
+		var dist := to.length()
+		if dist < 0.3 or dist > reach + e.radius + aim_assist_range:
+			continue
+		var ang := rad_to_deg(fwd.angle_to(to / dist))
+		if ang > aim_assist_deg:
+			continue
+		var score := ang / aim_assist_deg + dist / (reach + aim_assist_range)  # nah an der Blickrichtung und nah dran
+		if score < best_score:
+			best_score = score
+			best_yaw = atan2(-to.x, -to.z)
+	return best_yaw
+
+
+## Schlag regulär beenden (Nachlauf vorbei oder durch Laufen abgekürzt). Die Kette läuft weiter.
+func _end_swing() -> void:
+	_swing_t = -1.0
+	_module = null
 
 
 func _cancel_swing() -> void:
@@ -1201,8 +1262,7 @@ func _update_swing(delta: float) -> void:
 			info.stagger = 0.35 * weapon.eff_stagger(body.off_item)
 			hit_cone(melee_range + 0.3, swing_arc_deg, info)
 	if t >= 1.0:
-		_swing_t = -1.0
-		_module = null
+		_end_swing()
 
 
 func _deal_damage(victim: Node, info: DamageInfo) -> int:
