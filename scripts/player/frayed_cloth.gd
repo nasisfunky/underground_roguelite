@@ -6,11 +6,13 @@ extends RefCounted
 ## Alle Stoffe einer Figur laufen in einem Löser: Stoffbahnen, Bänder, Schalenden und Perlenschnüre.
 ## Zeile 0 jedes Stoffs ist am Gelenk angeheftet.
 
-const ITERATIONS := 4
+const ITERATIONS := 6
 const SUBSTEPS := 1
 const LUT_N := 64  ## Stützstellen der Querschnitt-Tabellen
 const GRAVITY := 9.8
 const HEAD_R := 0.16
+const REFINE := 3  ## Darstellung: jede Stoff-Masche wird in REFINE x REFINE weiche Teilflächen zerlegt
+const SMOOTH := 0.35  ## Darstellung: Knicke zwischen den Partikeln glätten (0 = aus)
 
 var body: ShadowBody
 var st: Array = []  ## Rumpf-Querschnitte [y, rx, rz, ox, oz]
@@ -117,22 +119,31 @@ func _add_cloth(c: Dictionary, parts: Dictionary, joints: Dictionary) -> void:
 		body.add_child(mi)
 		body._meshes.append(mi)
 		d.mesh = mi
+		# Die Simulation bleibt grob, gezeichnet wird eine feine, gekrümmte Fläche (Catmull-Rom durch die Partikel)
+		var su := REFINE if cols >= 3 else 2
+		var sv := REFINE
+		var rc := (cols - 1) * su + 1
+		var rr := (rows - 1) * sv + 1
 		var uv := PackedVector2Array()
 		var idx := PackedInt32Array()
 		var us: float = c.get("us", 1.0)
 		var vs: float = c.get("vs", 1.0)
 		var v0: float = c.get("v0", 0.0)
-		for r in rows:
-			for i in cols:
-				uv.append(Vector2(float(i) / (cols - 1) * us, v0 + float(r) / (rows - 1) * vs))
-		for r in rows - 1:
-			for i in cols - 1:
-				var a := r * cols + i
-				var cc := a + cols
+		for r in rr:
+			for i in rc:
+				uv.append(Vector2(float(i) / (rc - 1) * us, v0 + float(r) / (rr - 1) * vs))
+		for r in rr - 1:
+			for i in rc - 1:
+				var a := r * rc + i
+				var cc := a + rc
 				# Godot: Vorderseite im Uhrzeigersinn
 				idx.append_array([a, a + 1, cc, a + 1, cc + 1, cc])
 		d.uv = uv
 		d.idx = idx
+		d.rc = rc
+		d.rr = rr
+		d.wu = _cr_table(cols, su)
+		d.wv = _cr_table(rows, sv)
 	if c.has("segs"):
 		var segs: Array[MeshInstance3D] = []
 		for sn in c.segs:
@@ -168,6 +179,39 @@ func _make_lut(tab: Array, y0: float, y1: float) -> PackedFloat32Array:
 		var r := _ring(tab, lerpf(y0, y1, float(i) / (LUT_N - 1)))
 		out.append_array([r[0], r[1], r[2], r[3]])
 	return out
+
+
+## Catmull-Rom-Gewichte für n Stützstellen, sub Teilschritte je Abschnitt.
+## Je Ausgabepunkt 6 Einträge (Index, Gewicht); an den Enden wird linear fortgesetzt.
+func _cr_table(n: int, sub: int) -> Array:
+	var ids := PackedInt32Array()
+	var ws := PackedFloat32Array()
+	var m := (n - 1) * sub + 1
+	for t in m:
+		var seg := mini(t / sub, n - 2)
+		var f := float(t - seg * sub) / sub
+		var f2 := f * f
+		var f3 := f2 * f
+		var w := [(-f3 + 2.0 * f2 - f) * 0.5, (3.0 * f3 - 5.0 * f2 + 2.0) * 0.5, (-3.0 * f3 + 4.0 * f2 + f) * 0.5, (f3 - f2) * 0.5]
+		var slot := 0
+		for k in 4:
+			var j := seg - 1 + k
+			var pairs: Array
+			if j < 0:
+				pairs = [[0, 2.0 * w[k]], [1, -w[k]]]
+			elif j > n - 1:
+				pairs = [[n - 1, 2.0 * w[k]], [n - 2, -w[k]]]
+			else:
+				pairs = [[j, w[k]]]
+			for pr in pairs:
+				ids.append(pr[0])
+				ws.append(pr[1])
+				slot += 1
+		while slot < 6:
+			ids.append(0)
+			ws.append(0.0)
+			slot += 1
+	return [ids, ws]
 
 
 func _con(a: int, b: int, k: float) -> void:
@@ -370,18 +414,58 @@ func _render() -> void:
 		var cols: int = d.cols
 		var rows: int = d.rows
 		if d.has("mesh"):
-			var verts := PackedVector3Array()
-			verts.resize(cols * rows)
+			var coarse := PackedVector3Array()
+			coarse.resize(cols * rows)
 			for k in cols * rows:
-				verts[k] = inv * p[base + k]
-			var normals := PackedVector3Array()
-			normals.resize(cols * rows)
-			for r in rows:
+				coarse[k] = inv * p[base + k]
+			# scharfe Knicke an einzelnen Partikeln weichzeichnen (nur fürs Bild, die Simulation bleibt)
+			if SMOOTH > 0.0 and rows > 2:
+				var sm := coarse.duplicate()
+				for r in range(1, rows):
+					for i in cols:
+						var acc := Vector3.ZERO
+						var nb := 0
+						if r + 1 < rows:
+							acc += coarse[(r + 1) * cols + i] + coarse[(r - 1) * cols + i]
+							nb += 2
+						if i > 0 and i + 1 < cols:
+							acc += coarse[r * cols + i - 1] + coarse[r * cols + i + 1]
+							nb += 2
+						if nb > 0:
+							sm[r * cols + i] = coarse[r * cols + i].lerp(acc / nb, SMOOTH)
+				coarse = sm
+			var rc: int = d.rc
+			var rr: int = d.rr
+			var wu: Array = d.wu
+			var wv: Array = d.wv
+			var iu: PackedInt32Array = wu[0]
+			var fu: PackedFloat32Array = wu[1]
+			var iv: PackedInt32Array = wv[0]
+			var fv: PackedFloat32Array = wv[1]
+			# erst entlang der Reihen verfeinern, dann quer
+			var mid := PackedVector3Array()
+			mid.resize(rr * cols)
+			for t in rr:
 				for i in cols:
-					var du := verts[r * cols + mini(i + 1, cols - 1)] - verts[r * cols + maxi(i - 1, 0)]
-					var dv := verts[mini(r + 1, rows - 1) * cols + i] - verts[maxi(r - 1, 0) * cols + i]
+					var o := t * 6
+					mid[t * cols + i] = coarse[iv[o] * cols + i] * fv[o] + coarse[iv[o + 1] * cols + i] * fv[o + 1] + coarse[iv[o + 2] * cols + i] * fv[o + 2] \
+						+ coarse[iv[o + 3] * cols + i] * fv[o + 3] + coarse[iv[o + 4] * cols + i] * fv[o + 4] + coarse[iv[o + 5] * cols + i] * fv[o + 5]
+			var verts := PackedVector3Array()
+			verts.resize(rr * rc)
+			for t in rr:
+				for s2 in rc:
+					var o := s2 * 6
+					var m0 := t * cols
+					verts[t * rc + s2] = mid[m0 + iu[o]] * fu[o] + mid[m0 + iu[o + 1]] * fu[o + 1] + mid[m0 + iu[o + 2]] * fu[o + 2] \
+						+ mid[m0 + iu[o + 3]] * fu[o + 3] + mid[m0 + iu[o + 4]] * fu[o + 4] + mid[m0 + iu[o + 5]] * fu[o + 5]
+			var normals := PackedVector3Array()
+			normals.resize(rr * rc)
+			for r in rr:
+				for i in rc:
+					var du := verts[r * rc + mini(i + 1, rc - 1)] - verts[r * rc + maxi(i - 1, 0)]
+					var dv := verts[mini(r + 1, rr - 1) * rc + i] - verts[maxi(r - 1, 0) * rc + i]
 					var nn := dv.cross(du)
-					normals[r * cols + i] = nn.normalized() if nn.length_squared() > 1e-12 else Vector3.FORWARD
+					normals[r * rc + i] = nn.normalized() if nn.length_squared() > 1e-12 else Vector3.FORWARD
 			var arr := []
 			arr.resize(Mesh.ARRAY_MAX)
 			arr[Mesh.ARRAY_VERTEX] = verts
