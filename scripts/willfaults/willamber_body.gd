@@ -3,10 +3,15 @@ extends Node3D
 ## Willamber: hageres Wesen aus wabernden Schatten mit leuchtenden Augen. Steigt aus einer Schattenlache,
 ## bewegt sich in schnellen, sprunghaften Stößen, schlägt mit langen Armen zu und taucht zur Verteidigung
 ## zurück in den Schatten. Zustände steuert der Schwarm (WillamberSwarm); hier nur Körper und Haltung.
-## Animation von der Konzeptseite übernommen (willfaults3.js, buildWillamber).
+## Animation: Keyframes je Aktion (data/enemy_anims/willamber.json, Animationswerkstatt). Startfassung = die
+## frühere prozedurale Bewegung von der Konzeptseite (willfaults3.js, buildWillamber), siehe legacy_pose().
+## Automatisch bleiben: Blickrichtung, Schattenfäden, Lache, Schwaden.
 
 const MODEL := "res://assets/models/willfaults/willamber.glb"
 const WISP_COLOR := Color(0.015, 0.01, 0.03)
+const SINK_DEPTH := 0.85
+const JOINTS := ["hips_pos", "spine", "neck", "head", "armR_up", "armR_lo", "armL_up", "armL_lo",
+	"legR_th", "legR_sh", "legR_ft", "legL_th", "legL_sh", "legL_ft"]
 
 enum S { HIDDEN, RISE, LURK, DASH, STRIKE, SINK }
 
@@ -26,10 +31,11 @@ var _pool: MeshInstance3D
 var _halos: Array[MeshInstance3D] = []
 var _wisps: CPUParticles3D
 var _puff: CPUParticles3D
-var _look := Vector2.ZERO
-var _look_t := Vector2.ZERO
-var _tw_t := 0.0
 var _t := 0.0
+var _track := CreatureAnim.Track.new("willamber", 0.08)
+var _nodes := {}
+var _preview := false
+var _hips_rest := Vector3.ZERO
 var _prev_pos := Vector3.ZERO
 var _strand_v := Vector2.ZERO
 
@@ -39,6 +45,10 @@ func _ready() -> void:
 	add_child(_rise)
 	_m = WillfaultModel.spawn(MODEL, _rise)
 	j = WillfaultModel.joints(_m.root)
+	for n in JOINTS:
+		_nodes[n] = j[n.trim_suffix("_pos")]
+	_hips_rest = (j["hips"] as Node3D).position
+	CreatureAnim.ensure("willamber", _bake_sample)
 	_build_pool()
 	_build_eyes()
 	_build_wisps()
@@ -53,32 +63,39 @@ func set_state(s: S, duration: float) -> void:
 		_puff.restart()
 
 
-## Aktion für die Werkstatt-Zusätze und ihre normierte Zeit.
+## Aktion und ihre normierte Zeit (Versteckt = Ende von "sink").
 func anim_action() -> String:
 	match state:
 		S.DASH: return "dash"
 		S.STRIKE: return "strike"
 		S.RISE: return "rise"
-		S.SINK: return "sink"
+		S.SINK, S.HIDDEN: return "sink"
 	return "lurk"
 
 
 func anim_time() -> float:
-	if state in [S.LURK, S.HIDDEN]:
-		return fposmod(_t / 1.2, 1.0)
+	if state == S.LURK:
+		return fposmod((_t + index * 0.37) / _lurk_len(), 1.0)
+	if state == S.HIDDEN:
+		return 1.0
 	return clampf(state_k / maxf(state_k + state_t, 0.001), 0.0, 1.0)
 
 
-## Animationswerkstatt: Zustand zur Aktion setzen und Haltung zur normierten Zeit k zeigen.
+static func _lurk_len() -> float:
+	return CreatureAnim.action_info("willamber", "lurk")[3]
+
+
+## Animationswerkstatt: Haltung der Aktion zur normierten Zeit k zeigen (ohne Überblenden).
 func preview(action: String, k: float, delta: float) -> void:
 	var info := CreatureAnim.action_info("willamber", action)
 	var dur: float = info[3]
 	state = {"dash": S.DASH, "strike": S.STRIKE, "rise": S.RISE, "sink": S.SINK}.get(action, S.LURK)
 	if action == "lurk":
-		_t = k * 1.2 - delta
+		_t = k * dur - index * 0.37 - delta
 	state_k = k * dur
 	state_t = dur - state_k
-	strike = sin(PI * k) if state == S.STRIKE else 0.0
+	_track.fade_len = 0.0
+	_preview = true
 	pose(delta)
 
 
@@ -101,57 +118,93 @@ func _sink() -> float:
 func pose(delta: float) -> void:
 	_t += delta
 	var t := _t
-	var sink := _sink()
 	# Drehung schnappt fast sofort auf die neue Richtung
 	yaw += angle_difference(yaw, face_yaw) * minf(1.0, delta * 18.0)
 	(_m.root as Node3D).rotation.y = yaw
-	# Kopf zuckt in kurzen, harten Sprüngen
-	_tw_t -= delta
-	if _tw_t <= 0.0:
-		_tw_t = 0.1 + rng.randf() * 0.45
-		_look_t = Vector2((rng.randf() - 0.5) * 0.9, (rng.randf() - 0.5) * 1.4)
-	_look += (_look_t - _look) * minf(1.0, delta * 30.0)
-	# Haltung: tief geduckt, Rücken stark gekrümmt, lange Arme hängen fast bis zum Boden
-	var dashing := state == S.DASH
-	var dash_lean := 0.35 if dashing else 0.0
-	var cr := (0.65 + 0.1 * sin(t * 9.0 + index)) if state == S.LURK else 0.5
-	var th_x := 0.7 + cr * 0.5
-	var sh_x := -(1.3 + cr * 0.6)
-	for s in ["L", "R"]:
-		var sx := -1.0 if s == "L" else 1.0
-		WillfaultModel.rot(j["leg%s_th" % s], th_x + (0.4 * sin(t * 40.0 + sx) if dashing else 0.0), 0.0, sx * 0.12)
-		WillfaultModel.rot(j["leg%s_sh" % s], sh_x, 0.0, 0.0)
-		WillfaultModel.rot(j["leg%s_ft" % s], PI / 2.0 - (th_x + sh_x), 0.0, 0.0)
-	(j["hips"] as Node3D).position.y = 0.26 * cos(th_x) + 0.28 * cos(th_x + sh_x) + 0.02
-	WillfaultModel.rot(j["spine"], -1.05 - dash_lean - 0.25 * strike, 0.0, 0.06 * sin(t * 13.0 + index))
-	WillfaultModel.rot(j["neck"], 0.85 + dash_lean + 0.2 * strike + _look.x * 0.4, _look.y * 0.5, 0.0)
-	WillfaultModel.rot(j["head"], _look.x * 0.5, _look.y * 0.5, _look.y * 0.3)
-	for s in ["L", "R"]:
-		var sx := -1.0 if s == "L" else 1.0
-		var swing := strike * (1.0 if sx > 0.0 else 0.7)
-		WillfaultModel.rot(j["arm%s_up" % s], 0.95 + dash_lean - 2.4 * swing + 0.08 * sin(t * 17.0 + sx), 0.0, sx * (0.12 + 0.3 * swing))
-		WillfaultModel.rot(j["arm%s_lo" % s], 0.35 + 0.9 * swing, 0.0, 0.0)
-	# Zusätze aus der Animationswerkstatt (data/enemy_anims/willamber.json)
-	var off := CreatureAnim.sample("willamber", anim_action(), anim_time())
-	if not off.is_empty():
-		(j["hips"] as Node3D).position += off.get("hips_pos", Vector3.ZERO)
-		for n in ["spine", "neck", "head", "armR_up", "armR_lo", "armL_up", "armL_lo", "legR_th", "legR_sh", "legL_th", "legL_sh"]:
-			CreatureAnim.turn(j[n], off.get(n))
+	var p := _track.pose(anim_action(), anim_time(), delta)
+	if p.is_empty():
+		return
+	CreatureAnim.apply(p, _nodes)
+	# Auftauchen/Abtauchen: unter den Boden sinken, dabei gestaucht
+	var rp: Vector3 = p.get("rise_pos", Vector3.ZERO)
+	var sink := clampf(-rp.y / SINK_DEPTH, 0.0, 1.0)
+	_rise.position = rp
+	_rise.scale = Vector3(1.0 - 0.3 * sink, 1.0 + 0.25 * sink, 1.0 - 0.3 * sink)
 	# Schattenfäden schwingen der Bewegung nach
 	var vel := (global_position - _prev_pos) / maxf(delta, 1e-4)
 	_prev_pos = global_position
+	if _preview:
+		vel = Vector3.ZERO
 	var local_v := vel.rotated(Vector3.UP, -yaw)
 	_strand_v = _strand_v.lerp(Vector2(local_v.z, -local_v.x) * 0.25, minf(1.0, delta * 8.0))
 	for s in ["L", "R"]:
 		WillfaultModel.rot(j["strand" + s], clampf(_strand_v.x, -1.2, 1.2) + 0.25 * sin(t * 7.0 + (1.0 if s == "L" else 2.0)), 0.0, clampf(_strand_v.y, -0.8, 0.8))
-	# Auftauchen/Abtauchen: unter den Boden sinken, dabei gestaucht
-	_rise.position.y = -0.85 * sink
-	_rise.scale = Vector3(1.0 - 0.3 * sink, 1.0 + 0.25 * sink, 1.0 - 0.3 * sink)
 	_pool.scale = Vector3.ONE * (0.45 + 0.65 * maxf(sink, 0.1 if state == S.LURK else 0.2))
 	var vis := 1.0 - sink
 	for h in _halos:
 		h.scale = Vector3.ONE * (0.7 + 0.3 * sin(t * 6.0 + index)) * (1.6 if state == S.STRIKE else 1.0) * (1.0 if vis > 0.3 else 0.0)
 	_wisps.emitting = vis > 0.5
+
+
+# ------------------------------------------------------------------
+# Startfassung: frühere prozedurale Bewegung (daraus werden die Keys gebacken)
+# ------------------------------------------------------------------
+
+static func _q(x: float, y: float, z: float) -> Quaternion:
+	return (Basis(Vector3.RIGHT, x) * Basis(Vector3.UP, y) * Basis(Vector3.BACK, z)).get_rotation_quaternion()
+
+
+## Kopfzucken: kurze, harte Sprünge zu festen Zielen (früher Zufall; 4 Sprünge je Schleife)
+static func _look_at_time(t: float, loop_len: float) -> Vector2:
+	var seg_len := loop_len / 4.0
+	var seg := floori(t / seg_len)
+	var target := func(i: int) -> Vector2:
+		var h := fposmod(sin(float(posmod(i, 4)) * 12.9898 + 1.3) * 43758.5453, 1.0)
+		var g := fposmod(sin(float(posmod(i, 4)) * 78.233 + 0.7) * 24634.6345, 1.0)
+		return Vector2((h - 0.5) * 0.9, (g - 0.5) * 1.4)
+	var into := t - seg * seg_len
+	return (target.call(seg - 1) as Vector2).lerp(target.call(seg), 1.0 - exp(-30.0 * into))
+
+
+func _bake_sample(action: String, k: float) -> Dictionary:
+	var p := legacy_pose(action, k)
+	p.hips_pos = Vector3(_hips_rest.x, (p.hips_pos as Vector3).y, _hips_rest.z)
+	return p
+
+
+static func legacy_pose(action: String, k: float) -> Dictionary:
+	var dur: float = CreatureAnim.action_info("willamber", action)[3]
+	var t := k * dur
+	var strike := sin(PI * k) if action == "strike" else 0.0
+	var sink := 0.0
+	match action:
+		"rise":
+			sink = 1.0 - WillfaultModel.ease_back(k)
+		"sink":
+			sink = WillfaultModel.sm(k)
+	var look := _look_at_time(t, dur) if action == "lurk" else Vector2.ZERO
+	# Haltung: tief geduckt, Rücken stark gekrümmt, lange Arme hängen fast bis zum Boden
+	var dashing := action == "dash"
+	var dash_lean := 0.35 if dashing else 0.0
+	var cr := (0.65 + 0.1 * sin(t * TAU * 2.0 / dur)) if action == "lurk" else 0.5
+	var th_x := 0.7 + cr * 0.5
+	var sh_x := -(1.3 + cr * 0.6)
+	var p := {"rise_pos": Vector3(0, -SINK_DEPTH * sink, 0)}
+	for s in ["L", "R"]:
+		var sx := -1.0 if s == "L" else 1.0
+		p["leg%s_th" % s] = _q(th_x + (0.4 * sin(t * 40.0 + sx) if dashing else 0.0), 0.0, sx * 0.12)
+		p["leg%s_sh" % s] = _q(sh_x, 0.0, 0.0)
+		p["leg%s_ft" % s] = _q(PI / 2.0 - (th_x + sh_x), 0.0, 0.0)
+	p["hips_pos"] = Vector3(0, 0.26 * cos(th_x) + 0.28 * cos(th_x + sh_x) + 0.02, 0)
+	p["spine"] = _q(-1.05 - dash_lean - 0.25 * strike, 0.0, 0.06 * sin(t * TAU * 3.0 / dur))
+	p["neck"] = _q(0.85 + dash_lean + 0.2 * strike + look.x * 0.4, look.y * 0.5, 0.0)
+	p["head"] = _q(look.x * 0.5, look.y * 0.5, look.y * 0.3)
+	for s in ["L", "R"]:
+		var sx := -1.0 if s == "L" else 1.0
+		var swing := strike * (1.0 if sx > 0.0 else 0.7)
+		p["arm%s_up" % s] = _q(0.95 + dash_lean - 2.4 * swing + 0.08 * sin(t * TAU * 3.0 / dur + sx), 0.0, sx * (0.12 + 0.3 * swing))
+		p["arm%s_lo" % s] = _q(0.35 + 0.9 * swing, 0.0, 0.0)
+	return p
 
 
 func _build_pool() -> void:

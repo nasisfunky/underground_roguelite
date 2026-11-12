@@ -1093,6 +1093,11 @@ func tick(delta: float) -> void:
 		kl -= bo[7]
 		hr += Vector3(bo[8], 0.0, bo[9])
 		kr -= bo[10]
+		# ganze Figur kippen/absenken (Tod u. ä.): direkt gesteuert, solange der Clip es verlangt
+		if absf(bo[13]) > 0.0005 or absf(bo[14]) > 0.0005:
+			rig_x = bo[13]
+			rig_y = RIG_Y - bo[14]
+			rig_direct = true
 
 	if block_amount > 0.0 and has_shield and off_item == &"shield" and off_p >= 1.5:
 		var b := block_amount * block_amount * (3.0 - 2.0 * block_amount)
@@ -1529,9 +1534,15 @@ func _swing_pose(index: int, t: float, base: Array) -> Array:
 	var keys: Array = [[0.0, base[0], base[1], base[2], 0.0, 0.0, 0.0, base[3], base[4]]]
 	for k in c.keys:
 		keys.append([k.t, _unscale(k.grip), k.dir, k.flat, k.twist, k.lean, k.drop, _unscale(k.shield), k.shield_front, k.get("body", AnimLibrary.zero_body())])
-	keys.append([1.0, base[0], base[1], base[2], 0.0, 0.0, 0.0, base[3], base[4]])
 	keys[0].append(AnimLibrary.zero_body())
-	keys[keys.size() - 1].append(AnimLibrary.zero_body())
+	if c.get("hold_end", false) and not c.keys.is_empty():
+		# Haltung bleibt am Ende stehen (z. B. Tod), statt zur Grundhaltung zurückzukehren
+		var end_key: Array = (keys[keys.size() - 1] as Array).duplicate()
+		end_key[0] = 1.0
+		keys.append(end_key)
+	else:
+		keys.append([1.0, base[0], base[1], base[2], 0.0, 0.0, 0.0, base[3], base[4]])
+		keys[keys.size() - 1].append(AnimLibrary.zero_body())
 	# Catmull-Rom durch die Keyframes: durchgehende Geschwindigkeit, keine Stopps an den Keys
 	var i := 0
 	while i < keys.size() - 2 and t > keys[i + 1][0]:

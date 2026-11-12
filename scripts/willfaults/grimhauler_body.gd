@@ -3,7 +3,9 @@ extends Node3D
 ## Grimhauler: verzerrter Koloss aus Schattenflamme. Stampft schwer, schleift seine Axt mit dem Dorn
 ## über den Boden (Funken) und schlägt über Kopf zu. Die Schneide glüht vorher weiß-violett auf,
 ## denn der Schlag lässt sich nicht blocken. Beim Einschlag: Funkenfontäne, Schockwelle, Riss im Boden.
-## Animation 1:1 von der Konzeptseite übernommen (willfaults3.js, buildGrimhauler).
+## Animation: Keyframes (data/enemy_anims/grimhauler.json, Animationswerkstatt). Startfassung = die frühere
+## prozedurale Bewegung von der Konzeptseite (willfaults3.js, buildGrimhauler), siehe _legacy_pose().
+## Automatisch bleiben: Bein-IK zu den Fuß-Keys, Axt sitzt in der Hand, Effekte.
 
 const MODEL := "res://assets/models/willfaults/grimhauler.glb"
 const SCALE := 1.95  ## Wurzel-Skalierung des Modells
@@ -19,6 +21,8 @@ const CYCLE := 4.8  ## Dauer eines Angriffs
 const ARM_R := -0.15  ## Axtarm in Ruhe: hängt so tief, dass der Dorn den Boden erreicht
 const STEP_CYCLE := 2.1
 const GROUND_SPEED := 2.0 * 0.24 / (0.6 * STEP_CYCLE) * SCALE  ## m/s, passend zur Schrittweite
+const IMPACT_T := 1.74  ## s nach Angriffsbeginn: Einschlag (Funken, Schockwelle, Riss)
+const JOINTS := ["hips", "chest", "neck", "head", "upR", "foreR", "upL", "foreL"]
 
 var attacking := false
 var slam_lean := -0.7  ## Rumpfneigung im Einschlag
@@ -43,6 +47,8 @@ var _crack: MeshInstance3D
 var _crack_mat: StandardMaterial3D
 var _shards: Array[Node3D] = []
 var _shard_base: Array[Vector3] = []
+var _track := CreatureAnim.Track.new("grimhauler", 0.25)
+var _nodes := {}
 
 
 func _ready() -> void:
@@ -68,6 +74,10 @@ func _ready() -> void:
 	_edge_light.position = Vector3(0, 0.9, 0.6)
 	axe.add_child(_edge_light)
 	_build_fx()
+	for n in JOINTS:
+		_nodes[n] = j[n]
+	_nodes["hips_pos"] = j["hips"]
+	CreatureAnim.ensure("grimhauler", _bake_sample)
 	_pose(0.0)
 
 
@@ -85,6 +95,7 @@ func tick(delta: float) -> void:
 
 ## Animationswerkstatt: Haltung der Aktion ("walk"/"attack") zur normierten Zeit k zeigen.
 func preview(action: String, k: float, delta: float) -> void:
+	_track.fade_len = 0.0
 	attacking = action == "attack"
 	_t0 = 0.0
 	t = k * (CYCLE if attacking else STEP_CYCLE)
@@ -260,110 +271,45 @@ func _leg_ik(s: String, target: Vector3) -> void:
 	shin.quaternion = Quaternion(Vector3.DOWN, sd)
 
 
+func _bake_sample(action: String, k: float) -> Dictionary:
+	if action == "attack":
+		return _legacy_pose(true, k * CYCLE, k * CYCLE)
+	return _legacy_pose(false, k * STEP_CYCLE, -1.0)
+
+
 func _pose(dt: float) -> void:
 	var ta := fmod(t - _t0, CYCLE) if attacking else -1.0
 	if attacking and ta < 0.05:
 		_impacted = false
-	var k_w := WillfaultModel.sm(ta / 1.5) if attacking else 0.0  # Ausholen
-	var k_s := WillfaultModel.ease_in((ta - 1.5) / 0.24) if attacking else 0.0  # Schlag
-	var k_r := WillfaultModel.sm((ta - 2.75) / 1.3) if attacking else 0.0  # Zurückziehen
-	var in_slam := attacking and ta >= 1.5 and ta < 2.75
-	var walk_w := 0.0 if attacking else 1.0
-	# Beine: schwerer Stampfschritt bzw. breiter Stand
-	var ph := t / STEP_CYCLE * TAU
-	var stride := 0.24 * walk_w
-	var lift := 0.07 * walk_w
-	var feet := {}
-	for side in [["L", -1.0, 0.0], ["R", 1.0, 0.5]]:
-		var s: String = side[0]
-		var sx: float = side[1]
-		var u := fposmod(t / STEP_CYCLE + float(side[2]), 1.0)
-		var z: float
-		var y := 0.0
-		if u < 0.6:
-			z = lerpf(-stride, stride, u / 0.6)
-		else:
-			var k := (u - 0.6) / 0.4
-			z = lerpf(stride, -stride, WillfaultModel.sm(k))
-			y = lift * sin(PI * k)
-		if attacking:
-			var stance := Vector3(sx * 0.2, 0, -0.1 if sx < 0.0 else 0.1)
-			if s == "L":
-				stance.z += -0.16 * WillfaultModel.sm((ta - 1.3) / 0.4) * (1.0 - k_r)
-			feet[s] = stance
-		else:
-			feet[s] = Vector3(sx * 0.17, y, z)
-	var stomp := walk_w * (-0.035 * pow(absf(cos(ph)), 6.0))
-	var crouch := ((-0.05 * k_w + slam_crouch * k_s) * (1.0 - k_r) + 0.03 * k_w * (1.0 - k_s)) if attacking else 0.0
-	var hips: Node3D = j["hips"]
-	hips.position = Vector3(walk_w * 0.03 * sin(ph), HIP_Y - 0.07 + stomp + crouch, 0)
-	WillfaultModel.rot(hips, -0.08, walk_w * 0.12 * sin(ph), walk_w * 0.06 * sin(ph))
-	var lean := (lerpf(lerpf(-0.36, -0.02, k_w), slam_lean, k_s) * (1.0 - k_r) - 0.36 * k_r) if attacking else -0.36 + 0.03 * sin(2.0 * ph)
-	WillfaultModel.rot(j["chest"], lean, walk_w * -0.16 * sin(ph) + (-0.25 * k_w * (1.0 - k_s) if attacking else 0.0), walk_w * -0.04 * sin(ph))
-	WillfaultModel.rot(j["neck"], (lerpf(0.36, 0.6, k_s) * (1.0 - k_r) + 0.36 * k_r) if attacking else 0.38, walk_w * 0.1 * sin(t * 0.4), 0.0)
-	# Kopf zuckt in harten Sprüngen
-	var tw := floorf(t * 2.3)
-	var twk := fmod(sin(tw * 12.9898) * 43758.5453, 1.0)
-	WillfaultModel.rot(j["head"], 0.1 * twk, 0.5 * twk, 0.32 + 0.15 * sin(tw * 3.1))
-	# Arme
-	var shake := 0.03 * sin(t * 60.0) * (1.0 - (ta - 1.74) / 0.76) if in_slam and ta > 1.74 and ta < 2.5 else 0.0
-	var arm_r := ARM_R
-	var arm_l := 0.1 + walk_w * 0.32 * sin(ph + PI)
-	var z_l := -0.32
-	var fore_l := 0.55
-	if attacking:
-		arm_r = lerpf(lerpf(ARM_R, -2.75, k_w), slam_arm, k_s)
-		arm_r = lerpf(arm_r, ARM_R - TAU, k_r)
-		arm_l = lerpf(lerpf(0.1, -2.55, k_w), slam_arm + 0.15, k_s)
-		arm_l = lerpf(arm_l, 0.1 - TAU, k_r)
-		z_l = lerpf(-0.32, -0.06, WillfaultModel.sm(k_w * 2.0) * (1.0 - k_r))
-		fore_l = lerpf(0.55, 0.25, k_w * (1.0 - k_r))
-	WillfaultModel.rot(j["upR"], arm_r + shake, 0.0, 0.3 - (0.2 * k_w * (1.0 - k_r) if attacking else 0.0))
-	WillfaultModel.rot(j["foreR"], (0.3 * (1.0 - k_s * 0.7) * (1.0 - k_r) + 0.15 * k_r) if attacking else 0.15, 0.0, 0.0)
-	WillfaultModel.rot(j["upL"], arm_l + shake, 0.0, z_l)
-	WillfaultModel.rot(j["foreL"], fore_l, 0.0, 0.0)
-	# Zusätze aus der Animationswerkstatt (data/enemy_anims/grimhauler.json)
-	var off := CreatureAnim.sample("grimhauler", "attack" if attacking else "walk", ta / CYCLE if attacking else fposmod(t / STEP_CYCLE, 1.0))
-	if not off.is_empty():
-		hips.position += off.get("hips_pos", Vector3.ZERO)
-		for n in ["hips", "chest", "neck", "head", "upR", "foreR", "upL", "foreL"]:
-			CreatureAnim.turn(j[n], off.get(n))
-		feet["L"] += off.get("foot_L", Vector3.ZERO)
-		feet["R"] += off.get("foot_R", Vector3.ZERO)
-	_leg_ik("L", feet["L"])
-	_leg_ik("R", feet["R"])
-	# Axt an der rechten Hand: Dorn schleift am Boden, im Angriff über Kopf und mit der Schneide in den Boden
+	var p := _track.pose("attack" if attacking else "walk", ta / CYCLE if attacking else fposmod(t / STEP_CYCLE, 1.0), dt)
+	if p.is_empty():
+		return
+	CreatureAnim.apply(p, _nodes)
+	_leg_ik("L", p.get("foot_L", Vector3(-0.17, 0, 0)))
+	_leg_ik("R", p.get("foot_R", Vector3(0.17, 0, 0)))
+	# Axt sitzt in der rechten Hand, ihre Neigung kommt aus den Keys
 	var h2: Vector3 = root.global_transform.affine_inverse() * (j["handR"] as Node3D).global_position
-	var phi_d := _solve(h2.y, POLL, 0.2, 1.57, 0.02)
-	var phi := phi_d
-	if attacking:
-		var phi_i := _solve(h2.y, EDGE, 4.5, 6.2, 0.01)
-		phi = lerpf(lerpf(phi_d, 2.95, k_w), phi_i, k_s)
-		var phi_back := lerpf(phi, phi_d + TAU, k_r)
-		# beim Zurückziehen schleift die Axt über den Boden statt durch ihn hindurch
-		phi = phi_back if _min_y(h2.y, phi_back) >= 0.01 else _floor_clamp(h2.y, phi, phi_back)
-		if ta >= 1.74 and not _impacted:
-			_impacted = true
-			_shock_t = 0.0
-			var ez := h2.z + EDGE.y * sin(phi) + EDGE.z * cos(phi)
-			_shock.position = Vector3(h2.x, 0.01, ez)
-			_crack.position = Vector3(h2.x, 0.006, ez)
-			_crack.rotation.y = randf() * TAU
-			_burst.global_position = root.global_transform * Vector3(h2.x, 0.05, ez)
-			_burst.restart()
-	var yv := Vector3(0, -cos(phi), sin(phi))
-	var zv := Vector3(0, sin(phi), cos(phi))
-	axe.quaternion = Basis(yv.cross(zv), yv, zv).get_rotation_quaternion()
 	axe.position = h2
-	CreatureAnim.turn(axe, off.get("axe"))
+	axe.quaternion = p.get("axe", axe.quaternion)
+	var axf := axe.transform
+	if attacking and ta >= IMPACT_T and not _impacted:
+		_impacted = true
+		_shock_t = 0.0
+		var edge := axf * EDGE
+		_shock.position = Vector3(edge.x, 0.01, edge.z)
+		_crack.position = Vector3(edge.x, 0.006, edge.z)
+		_crack.rotation.y = randf() * TAU
+		_burst.global_position = root.global_transform * Vector3(edge.x, 0.05, edge.z)
+		_burst.restart()
 	# Glühen der Schneide: Warnung vor dem nicht blockbaren Schlag
+	var k_w := WillfaultModel.sm(ta / 1.5) if attacking else 0.0
 	var glow_k := clampf(k_w * 1.1, 0.0, 1.0) * (1.0 - WillfaultModel.sm((ta - 1.9) / 0.8)) if attacking else 0.0
 	_edge_mat.albedo_color = Color(lerpf(0.24, 0.97, glow_k), lerpf(0.14, 0.92, glow_k), lerpf(0.44, 1.0, glow_k))
 	_edge_light.light_energy = 0.15 + 2.5 * glow_k * (1.0 + 0.25 * sin(t * 30.0))
-	# Funken am Dorn
-	var poll := Vector3(h2.x, _y_at(h2.y, POLL, phi) + 0.01, h2.z + POLL.y * sin(phi) + POLL.z * cos(phi))
-	_drag.global_position = root.global_transform * poll
-	_drag.emitting = not attacking or ta > 3.6
+	# Funken am Dorn, wenn er den Boden berührt
+	var poll := axf * POLL
+	_drag.global_position = root.global_transform * Vector3(poll.x, maxf(poll.y, 0.0) + 0.01, poll.z)
+	_drag.emitting = (not attacking or ta > 3.6) and poll.y < 0.06
 	# Schockwelle und Riss
 	_shock_t += dt
 	var sk := _shock_t / 0.7
@@ -376,3 +322,83 @@ func _pose(dt: float) -> void:
 	for i in _shards.size():
 		_shards[i].position = _shard_base[i] + Vector3(0, 0.015 * sin(t * 1.3 + i * 1.7), 0)
 		_shards[i].rotation.y = t * 0.4 + i
+
+
+## Frühere prozedurale Bewegung (Startfassung der Keys). Setzt die Gelenke und liefert die Haltung als Kanäle.
+func _legacy_pose(att: bool, tt: float, ta: float) -> Dictionary:
+	var k_w := WillfaultModel.sm(ta / 1.5) if att else 0.0  # Ausholen
+	var k_s := WillfaultModel.ease_in((ta - 1.5) / 0.24) if att else 0.0  # Schlag
+	var k_r := WillfaultModel.sm((ta - 2.75) / 1.3) if att else 0.0  # Zurückziehen
+	var in_slam := att and ta >= 1.5 and ta < 2.75
+	var walk_w := 0.0 if att else 1.0
+	# Beine: schwerer Stampfschritt bzw. breiter Stand
+	var ph := tt / STEP_CYCLE * TAU
+	var stride := 0.24 * walk_w
+	var lift := 0.07 * walk_w
+	var feet := {}
+	for side in [["L", -1.0, 0.0], ["R", 1.0, 0.5]]:
+		var s: String = side[0]
+		var sx: float = side[1]
+		var u := fposmod(tt / STEP_CYCLE + float(side[2]), 1.0)
+		var z: float
+		var y := 0.0
+		if u < 0.6:
+			z = lerpf(-stride, stride, u / 0.6)
+		else:
+			var k := (u - 0.6) / 0.4
+			z = lerpf(stride, -stride, WillfaultModel.sm(k))
+			y = lift * sin(PI * k)
+		if att:
+			var stance := Vector3(sx * 0.2, 0, -0.1 if sx < 0.0 else 0.1)
+			if s == "L":
+				stance.z += -0.16 * WillfaultModel.sm((ta - 1.3) / 0.4) * (1.0 - k_r)
+			feet[s] = stance
+		else:
+			feet[s] = Vector3(sx * 0.17, y, z)
+	var stomp := walk_w * (-0.035 * pow(absf(cos(ph)), 6.0))
+	var crouch := ((-0.05 * k_w + slam_crouch * k_s) * (1.0 - k_r) + 0.03 * k_w * (1.0 - k_s)) if att else 0.0
+	var hips: Node3D = j["hips"]
+	hips.position = Vector3(walk_w * 0.03 * sin(ph), HIP_Y - 0.07 + stomp + crouch, 0)
+	WillfaultModel.rot(hips, -0.08, walk_w * 0.12 * sin(ph), walk_w * 0.06 * sin(ph))
+	var lean := (lerpf(lerpf(-0.36, -0.02, k_w), slam_lean, k_s) * (1.0 - k_r) - 0.36 * k_r) if att else -0.36 + 0.03 * sin(2.0 * ph)
+	WillfaultModel.rot(j["chest"], lean, walk_w * -0.16 * sin(ph) + (-0.25 * k_w * (1.0 - k_s) if att else 0.0), walk_w * -0.04 * sin(ph))
+	WillfaultModel.rot(j["neck"], (lerpf(0.36, 0.6, k_s) * (1.0 - k_r) + 0.36 * k_r) if att else 0.38, walk_w * 0.1 * sin(tt * 0.4), 0.0)
+	# Kopf zuckt in harten Sprüngen
+	var tw := floorf(tt * 2.3)
+	var twk := fmod(sin(tw * 12.9898) * 43758.5453, 1.0)
+	WillfaultModel.rot(j["head"], 0.1 * twk, 0.5 * twk, 0.32 + 0.15 * sin(tw * 3.1))
+	# Arme
+	var shake := 0.03 * sin(tt * 60.0) * (1.0 - (ta - IMPACT_T) / 0.76) if in_slam and ta > IMPACT_T and ta < 2.5 else 0.0
+	var arm_r := ARM_R
+	var arm_l := 0.1 + walk_w * 0.32 * sin(ph + PI)
+	var z_l := -0.32
+	var fore_l := 0.55
+	if att:
+		arm_r = lerpf(lerpf(ARM_R, -2.75, k_w), slam_arm, k_s)
+		arm_r = lerpf(arm_r, ARM_R - TAU, k_r)
+		arm_l = lerpf(lerpf(0.1, -2.55, k_w), slam_arm + 0.15, k_s)
+		arm_l = lerpf(arm_l, 0.1 - TAU, k_r)
+		z_l = lerpf(-0.32, -0.06, WillfaultModel.sm(k_w * 2.0) * (1.0 - k_r))
+		fore_l = lerpf(0.55, 0.25, k_w * (1.0 - k_r))
+	WillfaultModel.rot(j["upR"], arm_r + shake, 0.0, 0.3 - (0.2 * k_w * (1.0 - k_r) if att else 0.0))
+	WillfaultModel.rot(j["foreR"], (0.3 * (1.0 - k_s * 0.7) * (1.0 - k_r) + 0.15 * k_r) if att else 0.15, 0.0, 0.0)
+	WillfaultModel.rot(j["upL"], arm_l + shake, 0.0, z_l)
+	WillfaultModel.rot(j["foreL"], fore_l, 0.0, 0.0)
+	# Axt an der rechten Hand: Dorn schleift am Boden, im Angriff über Kopf und mit der Schneide in den Boden
+	var h2: Vector3 = root.global_transform.affine_inverse() * (j["handR"] as Node3D).global_position
+	var phi_d := _solve(h2.y, POLL, 0.2, 1.57, 0.02)
+	var phi := phi_d
+	if att:
+		var phi_i := _solve(h2.y, EDGE, 4.5, 6.2, 0.01)
+		phi = lerpf(lerpf(phi_d, 2.95, k_w), phi_i, k_s)
+		var phi_back := lerpf(phi, phi_d + TAU, k_r)
+		# beim Zurückziehen schleift die Axt über den Boden statt durch ihn hindurch
+		phi = phi_back if _min_y(h2.y, phi_back) >= 0.01 else _floor_clamp(h2.y, phi, phi_back)
+	var yv := Vector3(0, -cos(phi), sin(phi))
+	var zv := Vector3(0, sin(phi), cos(phi))
+	axe.quaternion = Basis(yv.cross(zv), yv, zv).get_rotation_quaternion()
+	axe.position = h2
+	var out := {"hips_pos": hips.position, "axe": axe.quaternion, "foot_L": feet["L"], "foot_R": feet["R"]}
+	for n in JOINTS:
+		out[n] = (j[n] as Node3D).quaternion
+	return out

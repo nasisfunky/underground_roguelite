@@ -9,6 +9,7 @@ const TAIL_RINGS := [[0.03, 0.1, 0.085], [-0.08, 0.108, 0.09], [-0.25, 0.092, 0.
 	[-0.65, 0.04, 0.034], [-0.85, 0.016, 0.014], [-0.95, 0.0, 0.0]]
 const ATTACK_CYCLE := 3.4
 const CLIP := "hollow_one_strike"  ## eigene Angriffsanimation (Animationswerkstatt)
+const HOVER_LEN := TAU / 0.45  ## eine ganze Acht
 
 var outfit := ""  ## leer: zufällige Kultur
 var attacking := false
@@ -17,6 +18,7 @@ var body: ShadowBody
 var _t0 := 0.0
 var _halos: Array[MeshInstance3D] = []
 var _eye_light: OmniLight3D
+var _track := CreatureAnim.Track.new("hollow_one", 0.4)
 
 
 func _ready() -> void:
@@ -31,6 +33,7 @@ func _ready() -> void:
 	_build_tail()
 	_build_eyes()
 	_break_weapon()
+	CreatureAnim.ensure("hollow_one", HollowOneBody.legacy_pose)
 	# Scheide und übrige Kleinteile am Gürtel ebenfalls verbraucht
 	for n in ["Scabbard", "DaggerSheath"]:
 		var holder := body.hips.get_node_or_null(n)
@@ -46,24 +49,27 @@ func set_attacking(on: bool) -> void:
 		_t0 = t
 
 
+## Animationswerkstatt: Haltung der Aktion ("hover"/"attack") zur normierten Zeit k zeigen.
+func preview(action: String, k: float, delta: float) -> void:
+	_track.fade_len = 0.0
+	attacking = action == "attack"
+	_t0 = 0.0
+	t = k * (ATTACK_CYCLE if attacking else HOVER_LEN) - delta
+	tick(delta)
+
+
 func tick(delta: float) -> void:
 	t += delta
 	var ta := fmod(t - _t0, ATTACK_CYCLE) if attacking else -1.0
-	# Schweben: weite, ruhige Acht; im Angriff Ausholen, Durchgleiten mit Hieb, Zurückgleiten
-	var x := 0.42 * sin(t * 0.45)
-	var z := 0.26 * sin(t * 0.9)
-	var y := 0.34 + 0.06 * sin(t * 1.7)
-	var bank := -0.35 * 0.42 * 0.45 * cos(t * 0.45) * 2.4
+	# Schweben und Durchgleiten: Keyframes (data/enemy_anims/hollow_one.json); Arme = Clip CLIP
+	var p := _track.pose("attack" if attacking else "hover", ta / ATTACK_CYCLE if attacking else fposmod(t / HOVER_LEN, 1.0), delta)
+	body.position = p.get("drift", Vector3(0, 0.34, 0))
+	body.quaternion = p.get("tilt", Quaternion.IDENTITY)
 	var flare := 0.0
 	body.action = &""
 	if attacking:
 		var k_w := WillfaultModel.sm(ta / 0.8)
-		var k_d := WillfaultModel.sm((ta - 0.8) / 0.28)
 		var k_b := WillfaultModel.sm((ta - 1.4) / 1.4)
-		x = lerpf(x, 0.0, k_w)
-		z = lerpf(lerpf(z, 0.35, k_w), -0.6, k_d) * (1.0 - k_b) + z * k_b
-		y = 0.42 + 0.14 * k_w * (1.0 - k_d) - 0.1 * k_d * (1.0 - k_b)
-		bank *= k_b
 		flare = k_w * (1.0 - k_b)
 		var tr: Vector2 = AnimLibrary.clip(CLIP).trail  # Ausholen | Schlag | Erholen (Animationswerkstatt)
 		body.swing_clip = CLIP
@@ -76,8 +82,6 @@ func tick(delta: float) -> void:
 		elif ta < 2.4:
 			body.action = &"swing"
 			body.action_t = tr.y + (1.0 - tr.y) * (ta - 1.08) / 1.32
-	body.position = Vector3(x, y, z)
-	body.rotation = Vector3(0, 0, bank)
 	body.combat = 1.0 if attacking else 0.25
 	body.speed = 0.0
 	body.on_floor = true
@@ -86,6 +90,26 @@ func tick(delta: float) -> void:
 	for h in _halos:
 		h.scale = Vector3.ONE * (1.0 + 0.6 * flare + 0.08 * sin(t * 5.0))
 	_eye_light.light_energy = 0.15 + 0.8 * flare
+
+
+## Startfassung: frühere prozedurale Bewegung (daraus werden die Keys gebacken).
+static func legacy_pose(action: String, k: float) -> Dictionary:
+	var att := action == "attack"
+	var t := k * (ATTACK_CYCLE if att else HOVER_LEN)
+	var x := 0.42 * sin(t * 0.45)
+	var z := 0.26 * sin(t * 0.9)
+	var y := 0.34 + 0.06 * sin(t * 1.8)
+	var bank := -0.35 * 0.42 * 0.45 * cos(t * 0.45) * 2.4
+	if att:
+		var ta := t
+		var k_w := WillfaultModel.sm(ta / 0.8)
+		var k_d := WillfaultModel.sm((ta - 0.8) / 0.28)
+		var k_b := WillfaultModel.sm((ta - 1.4) / 1.4)
+		x = lerpf(x, 0.0, k_w)
+		z = lerpf(lerpf(z, 0.35, k_w), -0.6, k_d) * (1.0 - k_b) + z * k_b
+		y = 0.42 + 0.14 * k_w * (1.0 - k_d) - 0.1 * k_d * (1.0 - k_b)
+		bank *= k_b
+	return {"drift": Vector3(x, y, z), "tilt": Quaternion(Vector3.BACK, bank)}
 
 
 ## Schweif aus Ringen (Hüftraum): Tiefen-Durchgang + Schleier, wie der Körper

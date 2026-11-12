@@ -9,6 +9,8 @@ extends Enemy
 signal respawn_requested(hollowed: Hollowed)
 
 const CLIP := "hollowed_strike"  ## eigene Angriffsanimation (Animationswerkstatt)
+const STAGGER_CLIP := "hollowed_stagger"  ## Taumeln (auf die Taumeldauer gestreckt)
+const DEATH_CLIP := "hollowed_death"  ## Tod, letzte Haltung bleibt stehen
 const VIOLET := Color(0.72, 0.52, 1.0)
 const HEM_HEAT := "#1c0b3d"
 const HEM_HOT := "#9f6bff"
@@ -175,11 +177,13 @@ func _animate(delta: float) -> void:
 			body.action = &"swing"
 			body.action_t = tr.y + (1.0 - tr.y) * (state_t / recover_time)
 		S.STAGGER:
-			body.action = &"stagger"
-			body.action_t = state_t / _stagger_len
+			body.action = &"swing"
+			body.swing_clip = STAGGER_CLIP
+			body.action_t = minf(state_t / _stagger_len, 1.0)
 		S.DEAD:
-			body.action = &"dead"
-			body.action_t = state_t
+			body.action = &"swing"
+			body.swing_clip = DEATH_CLIP
+			body.action_t = minf(state_t / AnimLibrary.clip(DEATH_CLIP).duration, 1.0)
 		_:
 			body.action = &""
 	body.tick(delta)

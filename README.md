@@ -250,14 +250,19 @@ Die Kulturklingen haben je Kultur eine eigene Datei (kiln/rimefall/glowmire).
 **Stowed gear** – für alle Waffen gleich (`data/poses/gear.json`): Schild auf dem Rücken, Zweithand-Dolch am Gürtel,
 Laterne am Gürtel und vorgehalten.
 
-**Enemies** – Gegneranimationen.
-- Hollowed und Hollow One haben Shade-Körper: ihr Angriff ist eine normale Animation
-  ("Enemy: Hollowed strike" / "Enemy: Hollow One strike", im Animationsmodus mit allen Reitern; die Figur sieht dort
-  wie der Gegner aus). Im Reiter Timing ist das Trail-Fenster die Schlagphase (davor Ausholen, danach Erholen).
-- Splinterkin, Grimhauler und Willambers bewegen sich prozedural (Füße suchen den Boden, die Axt folgt der Hand).
-  Je Aktion (z. B. Overhead slam, Scuttling, Strike) setzt man Keys mit Gelenkdrehungen (Grad) und Verschiebungen
-  von Körper/Füßen (m) als Zusatz obendrauf (`data/enemy_anims/<gegner>.json`). Schleifen (Gehen, Lauern) laufen rund,
-  alle anderen beginnen und enden ohne Zusatz.
+**Enemies** – Gegneranimationen, komplett aus Keyframes.
+- Splinterkin, Grimhauler, Willambers und das Schweben des Hollow One: je Aktion (z. B. Scuttling, Overhead slam,
+  Strike, Hovering) eine Reihe Keys, jeder Key ist die ganze Haltung (Gelenkdrehungen in Grad, Positionen von
+  Körper und Füßen in m). Dazwischen weich interpoliert, beim Wechsel der Aktion kurz übergeblendet.
+  Automatisch bleiben nur Bein-IK zu den Fuß-Keys, die Axt in der Hand, Schattenfäden und Effekte.
+  Ohne Datei gilt die Startfassung: die frühere prozedurale Bewegung, beim Start abgetastet und auf wenige Keys
+  verdichtet. **Reset key** / **Reset whole action** holen sie zurück. Gespeichert werden nur geänderte Aktionen
+  (`data/enemy_anims/<gegner>.json`, Format-Version 2; ältere Dateien im Zusatz-Format werden ignoriert).
+- Hollowed (Shade-Körper): Angriff, Taumeln und Tod sind normale Animationen ("Enemy: Hollowed strike / staggered /
+  death", im Animationsmodus mit allen Reitern; die Figur sieht dort wie der Gegner aus). Beim Angriff ist das
+  Trail-Fenster die Schlagphase. Der Tod nutzt "Hold last pose at the end" und die Körperwerte Fall over / Sink.
+  Gehen und Stehen teilt der Hollowed vorerst mit der Spielfigur.
+- Hollow One: die Arme beim Schlag sind der Clip "Enemy: Hollow One strike".
 
 **Save** (Strg+S) schreibt die Datei des aktuellen Modus, im Spiel sofort aktiv. **Revert** lädt die Datei neu,
 Strg+Z macht rückgängig. Fehlt eine Datei, gelten die eingebauten Vorgaben.

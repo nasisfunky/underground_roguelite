@@ -31,12 +31,12 @@ func _ready() -> void:
 	ws._set_enemy("hollowed")
 	await _wait(5)
 	await _shot("enemy_hollowed")
-	ws._open_enemy_clip()
-	ws._set_t(0.5)
+	ws._open_enemy_clip("hollowed_death")
+	ws._set_t(0.8)
 	await _wait(10)
-	await _shot("clip_hollowed")
+	await _shot("clip_hollowed_death")
 	ws._set_mode(ws.Mode.ENEMY)
-	for e in ["splinterkin", "grimhauler", "willamber"]:
+	for e in ["splinterkin", "grimhauler", "willamber", "hollow_one"]:
 		ws._set_enemy(e)
 		var acts: Array = CreatureAnim.CREATURES[e].actions
 		ws._set_enemy_action(acts[acts.size() - 1][0] if e != "willamber" else "strike")

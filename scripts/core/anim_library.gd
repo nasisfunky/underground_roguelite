@@ -10,15 +10,20 @@ extends RefCounted
 
 const DIR := "res://data/anims/"
 const CLIPS := ["swing_0", "swing_1", "heavy", "thrust", "shove", "sweep", "hook", "bind", "sever", "rake", "flurry"]
-## Angriffe der Gegner mit Shade-Körper. Phasen: Ausholen bis trail.x, Schlag (Schaden) bis trail.y, dann Erholen.
-## Ohne eigene Datei: Kopie der Heavy-Animation (so sahen sie vorher aus).
-const ENEMY_CLIPS := ["hollowed_strike", "hollow_one_strike"]
-const ENEMY_LABELS := {"hollowed_strike": "Enemy: Hollowed strike", "hollow_one_strike": "Enemy: Hollow One strike"}
+## Animationen der Gegner mit Shade-Körper. Angriffe: Ausholen bis trail.x, Schlag (Schaden) bis trail.y, dann Erholen;
+## ohne eigene Datei eine Kopie der Heavy-Animation (so sahen sie vorher aus). Taumeln/Tod: eingebaute Startfassung
+## (vorher fest im Code von ShadowBody). Der Tod hält seine letzte Haltung ("hold_end").
+const ENEMY_CLIPS := ["hollowed_strike", "hollowed_stagger", "hollowed_death", "hollow_one_strike"]
+const ENEMY_LABELS := {"hollowed_strike": "Enemy: Hollowed strike", "hollowed_stagger": "Enemy: Hollowed staggered",
+	"hollowed_death": "Enemy: Hollowed death", "hollow_one_strike": "Enemy: Hollow One strike"}
+## Welcher Gegner wie aussieht (Figur in der Werkstatt)
+const ENEMY_LOOKS := {"hollowed_strike": "hollowed", "hollowed_stagger": "hollowed", "hollowed_death": "hollowed", "hollow_one_strike": "hollow_one"}
 const ALL_CLIPS := CLIPS + ENEMY_CLIPS
 ## Zusätzliche Körpersteuerung je Keyframe (Werkstatt). Werte addieren sich zur prozeduralen Pose (0 = unverändert).
 ## Winkel in Radiant, step in Metern. In der Datei stehen nur Werte ungleich 0.
+## fall/sink: ganze Figur nach vorn (+) / hinten kippen (rad) und absenken (m), z. B. beim Tod.
 const BODY_FIELDS := ["bank", "hips_turn", "head_yaw", "head_pitch", "step",
-	"leg_l_swing", "leg_l_spread", "leg_l_knee", "leg_r_swing", "leg_r_spread", "leg_r_knee", "elbow_r", "elbow_l"]
+	"leg_l_swing", "leg_l_spread", "leg_l_knee", "leg_r_swing", "leg_r_spread", "leg_r_knee", "elbow_r", "elbow_l", "fall", "sink"]
 ## Waffen, für die es eigene Versionen eines Clips geben kann (Datei <clip>@<waffe>.json)
 const VARIANT_WEAPONS := ["sword", "spear", "greataxe", "dagger"]
 
@@ -71,7 +76,7 @@ static func clip(clip_name: String) -> Dictionary:
 	if c.is_empty():
 		if "@" in clip_name:
 			return clip(clip_name.get_slice("@", 0))  # keine eigene Version: allgemeiner Clip
-		if clip_name in ENEMY_CLIPS:
+		if clip_name in ["hollowed_strike", "hollow_one_strike"]:
 			c = duplicate_clip(clip("heavy"))
 			c.name = clip_name
 			c.label = ENEMY_LABELS[clip_name]
@@ -141,6 +146,7 @@ static func _from_json(d: Dictionary) -> Dictionary:
 		"duration": float(d.get("duration", 0.95)),
 		"hit": float(d.get("hit", 0.44)),
 		"trail": Vector2(float(tr[0]), float(tr[1])),
+		"hold_end": bool(d.get("hold_end", false)),
 		"keys": keys,
 	}
 
@@ -171,8 +177,11 @@ static func _to_json(c: Dictionary) -> Dictionary:
 			if absf(b[i]) > 0.0005:
 				kd[BODY_FIELDS[i]] = _r(b[i])
 		keys.append(kd)
-	return {"name": c.name, "label": c.label, "duration": _r(c.duration), "hit": _r(c.hit),
+	var out := {"name": c.name, "label": c.label, "duration": _r(c.duration), "hit": _r(c.hit),
 		"trail": [_r(c.trail.x), _r(c.trail.y)], "keys": keys}
+	if c.get("hold_end", false):
+		out.hold_end = true
+	return out
 
 
 ## Lesbares JSON: Kopfdaten oben, ein Keyframe pro Zeile.
@@ -181,9 +190,9 @@ static func _to_text(c: Dictionary) -> String:
 	var lines: Array[String] = []
 	for k in j.keys:
 		lines.append("\t\t" + JSON.stringify(k, "", false))
-	return "{\n\t\"name\": %s,\n\t\"label\": %s,\n\t\"duration\": %s,\n\t\"hit\": %s,\n\t\"trail\": %s,\n\t\"keys\": [\n%s\n\t]\n}\n" % [
+	return "{\n\t\"name\": %s,\n\t\"label\": %s,\n\t\"duration\": %s,\n\t\"hit\": %s,\n\t\"trail\": %s,%s\n\t\"keys\": [\n%s\n\t]\n}\n" % [
 		JSON.stringify(j.name), JSON.stringify(j.label), JSON.stringify(j.duration), JSON.stringify(j.hit),
-		JSON.stringify(j.trail), ",\n".join(lines)]
+		JSON.stringify(j.trail), "\n\t\"hold_end\": true," if j.get("hold_end", false) else "", ",\n".join(lines)]
 
 
 static func duplicate_clip(c: Dictionary) -> Dictionary:
@@ -313,6 +322,30 @@ static func builtin(clip_name: String) -> Dictionary:
 				[0.62, [0.14, 0.22, -0.55], [-0.02, 0.12, -1], [0, 1, 0], 0.12, -0.26, 0.1],
 				[0.82, [0.26, 0.12, -0.36], [-0.12, 0.4, -0.9], [0, 1, 0], 0.0, -0.08, 0.03],
 			]
+		"hollowed_stagger":
+			# Taumeln: nach hinten geworfen, Waffe und freie Hand weichen zur Seite (vorher fest im Code)
+			d.label = ENEMY_LABELS[clip_name]
+			d.duration = 0.55
+			d.hit = 0.385
+			d.trail = [1.1, 1.2]
+			rows = []
+			for tt in [0.12, 0.25, 0.385, 0.55, 0.72]:
+				var w := sin(minf(tt * 1.3, 1.0) * PI)
+				rows.append([tt, _scaled(Vector3(0.42, -0.1, 0.12)), [0.3, 0.4, 0.6], [0, 1, 0], 0.25 * w, 0.45 * w, 0.0,
+					_scaled(Vector3(-0.42, -0.05, 0.05)), [-0.35, 0.0, -1.0], {"leg_l_knee": 0.2 * w, "leg_r_knee": 0.15 * w}])
+		"hollowed_death":
+			# Tod: knickt ein und fällt nach vorn, bleibt liegen (hold_end); danach versinkt er (Code)
+			d.label = ENEMY_LABELS[clip_name]
+			d.duration = 1.2
+			d.hit = 0.375
+			d.trail = [1.1, 1.2]
+			d.hold_end = true
+			rows = []
+			for tt in [0.1, 0.2, 0.3, 0.375, 0.6]:
+				var w := clampf(tt * 1.2 * 2.2, 0.0, 1.0)
+				var f := 1.0 - pow(1.0 - w, 3.0)
+				rows.append([tt, _scaled(Vector3(0.45, -0.3, 0.1)), [0.2, -0.6, -0.75], [0, 1, 0], 0.0, 0.0, 0.0,
+					_scaled(Vector3(-0.4, -0.3, 0.0)), [-0.35, -0.3, -1.0], {"leg_l_knee": 0.3 * w, "leg_r_knee": 0.1 * w, "fall": 1.45 * f, "sink": 0.3 * w}])
 		_:
 			d.label = "Heavy Strike"
 			d.duration = 1.2
@@ -328,8 +361,11 @@ static func builtin(clip_name: String) -> Dictionary:
 	for r in rows:
 		var shp: Array = r[7] if r.size() > 7 else [sh.x, sh.y, sh.z]
 		var shfr: Array = r[8] if r.size() > 8 else [shf.x, shf.y, shf.z]
-		keys.append({"t": r[0], "grip": r[1], "dir": r[2], "flat": r[3], "twist": r[4], "lean": r[5], "drop": r[6],
-			"shield": shp, "shield_front": shfr})
+		var key := {"t": r[0], "grip": r[1], "dir": r[2], "flat": r[3], "twist": r[4], "lean": r[5], "drop": r[6],
+			"shield": shp, "shield_front": shfr}
+		if r.size() > 9:
+			key.merge(r[9])
+		keys.append(key)
 	d.keys = keys
 	var c := _from_json(d)
 	# Sicherheit: Griff und Schildhand bleiben in Armreichweite (sonst reißt die Hand von der Waffe ab)
@@ -337,6 +373,11 @@ static func builtin(clip_name: String) -> Dictionary:
 		k.grip = _in_reach(k.grip, ShadowBody.SHOULDER_R)
 		k.shield = _in_reach(k.shield, ShadowBody.SHOULDER_L)
 	return c
+
+
+## Pose-Koordinaten wie ShadowBody._scale_pose (feste Werte aus dem alten Code -> Clip-Koordinaten)
+static func _scaled(v: Vector3) -> Array:
+	return [v.x * 0.95, 0.43 + (v.y - 0.47) * ShadowBody.POSE_SCALE, v.z * ShadowBody.POSE_SCALE]
 
 
 static func _in_reach(p: Vector3, shoulder: Vector3) -> Vector3:
