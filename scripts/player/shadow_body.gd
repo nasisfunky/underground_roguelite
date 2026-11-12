@@ -29,6 +29,7 @@ var hem_hot := ""
 ## Willfault: zersplitterter Schatten eines gescheiterten Shades. Ohne Stoff, Lücken an den Gelenken,
 ## schwebende Splitter, zuckende Bewegungen, Ausrüstung teils abgefallen und dunkel.
 var willfault := false
+var ghost := false  ## Hollow One: heller Geisterschleier statt Schattenflamme, keine Beine, verbrauchte Ausrüstung
 var shard_mat: Material  ## Material der schwebenden Splitter (Willfault)
 
 # --- Eingänge vom Controller (pro Tick setzen) ---
@@ -190,6 +191,10 @@ const SWORD_BELT := Vector3(-0.21, 0.1, -0.12)  ## Griff an der linken Hüfte (H
 
 
 const SKIN_SHADER := preload("res://assets/shaders/shade_skin.gdshader")
+const GHOST_SHADER := preload("res://assets/shaders/hollow_ghost.gdshader")
+const GHOST_DEPTH_SHADER := preload("res://assets/shaders/hollow_ghost_depth.gdshader")
+const WORN_SHADER := preload("res://assets/shaders/worn_gear.gdshader")
+const LEG_JOINTS := ["hip_l", "knee_l", "hip_r", "knee_r"]
 static var _skin_mat: ShaderMaterial
 
 
@@ -228,6 +233,12 @@ func _build_frayed() -> void:
 	eye_mat = LowPoly.mat(eye_color, 2.6).duplicate()
 	eye_mat.cull_mode = BaseMaterial3D.CULL_DISABLED  # Augen-Dreiecke kommen aus dem Export umgekehrt gewickelt
 	_overrides = {"Skin": skin_material(), "Eye": eye_mat}
+	if ghost:
+		# Augen zeichnet der Hollow One selbst (schwarze Kreise mit weißem Rand)
+		var hidden := StandardMaterial3D.new()
+		hidden.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		hidden.albedo_color = Color(0, 0, 0, 0)
+		_overrides["Eye"] = hidden
 	var body_hem: Array = FrayedOutfit.hem_chain(outfit_info, hem_layers, false, 1.3, hem_heat, hem_hot)
 	var head_hem: Array = FrayedOutfit.hem_chain(outfit_info, head_layers, true, 1.3, hem_heat, hem_hot)
 	_hem_mats.assign(body_hem[1] + head_hem[1])
@@ -253,6 +264,8 @@ func _build_frayed() -> void:
 	var joints := {"hips": hips, "chest": chest, "head": head, "hip_l": hip_l, "knee_l": knee_l, "hip_r": hip_r, "knee_r": knee_r,
 		"arm_up_l": arm_up_l, "arm_lo_l": arm_lo_l, "arm_up_r": arm_up_r, "arm_lo_r": arm_lo_r}
 	for jn in joints:
+		if ghost and jn in LEG_JOINTS:
+			continue
 		var parent: Node3D = joints[jn]
 		# Hand, die etwas greift: Unterarm etwas länger, damit die Faust am Griff sitzt
 		var grip_scale := Vector3.ONE
@@ -262,7 +275,9 @@ func _build_frayed() -> void:
 		if parts.has(sn):
 			var mi := _part(parts, sn, parent)
 			mi.scale = grip_scale
-			if data.has_hem.get(sn, false):
+			if ghost:
+				_ghostify(mi)
+			elif data.has_hem.get(sn, false):
 				var hm := MeshInstance3D.new()
 				hm.name = "Hem"
 				hm.mesh = parts[sn]
@@ -278,12 +293,17 @@ func _build_frayed() -> void:
 				if jn in ["arm_up_l", "arm_lo_l", "hip_r"] and _rng.randf() < 0.6:
 					g.visible = false
 				g.material_overlay = _dim_mat()
+			elif ghost:
+				# alte Ausrüstung: manches ist verloren, der Rest verschmutzt und angerostet
+				if jn in ["arm_up_l", "arm_lo_l"] and _rng.randf() < 0.5:
+					g.visible = false
+				wear(g, _rng.randf() * 10.0)
 		if willfault and jn in ["arm_lo_l", "arm_lo_r", "knee_l", "knee_r"]:
 			# Lücke am Gelenk: Teile sitzen ein Stück versetzt
 			for c in parent.get_children():
 				if c is MeshInstance3D:
 					(c as MeshInstance3D).position.y -= 0.035
-	if parts.has("HeadHem"):
+	if parts.has("HeadHem") and not ghost:
 		var hh := MeshInstance3D.new()
 		hh.name = "HeadHem"
 		hh.mesh = parts["HeadHem"]
@@ -291,7 +311,7 @@ func _build_frayed() -> void:
 		hh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		head.add_child(hh)
 	head_light = OmniLight3D.new()
-	head_light.light_color = Color.html(hem_hot if hem_hot != "" else outfit_info.get("hot", "#ff5464"))
+	head_light.light_color = Color(0.9, 0.9, 1.0) if ghost else Color.html(hem_hot if hem_hot != "" else outfit_info.get("hot", "#ff5464"))
 	head_light.light_energy = 0.45
 	head_light.omni_range = 1.4
 	head_light.position = Vector3(0, 0.2, 0.05)
@@ -307,7 +327,9 @@ func _build_frayed() -> void:
 		has_shield = false
 	if parts.has("Offhand") and not willfault:
 		offhand = _joint(chest, OFFHAND_HOLD)
-		_part(parts, "Offhand", offhand)
+		var oh := _part(parts, "Offhand", offhand)
+		if ghost:
+			wear(oh, 5.0)
 		if has_lantern and outfit_info.has("offhandLantern"):
 			var ol: Dictionary = outfit_info.offhandLantern
 			var hook := _joint(offhand, Vector3(ol.pos[0], ol.pos[1], ol.pos[2]))
@@ -342,6 +364,8 @@ func _build_frayed() -> void:
 		_build_shards()
 		return
 	cloth = FrayedCloth.new()
+	cloth.legs = not ghost
+	cloth.torn = ghost
 	cloth.setup(self, outfit_info, parts, joints)
 
 
@@ -482,6 +506,59 @@ static func _blend_held(a: Dictionary, b: Dictionary, k: float) -> Dictionary:
 func _off_dagger_stow_xf() -> Transform3D:
 	var g: Dictionary = PoseLibrary.gear().dagger_stow
 	return Transform3D(_basis_from(-(g.dir as Vector3), g.hint), g.pos)
+
+
+## Geisterschleier: unsichtbarer Tiefen-Durchgang am Teil selbst, Farbe als Kind darüber
+func _ghostify(mi: MeshInstance3D) -> void:
+	mi.material_override = ghost_material(false, true)
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var veil := MeshInstance3D.new()
+	veil.name = "Veil"
+	veil.mesh = mi.mesh
+	veil.material_override = ghost_material(false, false)
+	veil.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mi.add_child(veil)
+	_meshes.append(veil)
+
+
+static var _ghost_mats: Dictionary = {}
+
+
+## Geistermaterial (geteilt): depth = Tiefen-Durchgang, tail = Schweif mit Schwingen
+static func ghost_material(tail: bool, depth: bool) -> ShaderMaterial:
+	var key := "%s_%s" % [tail, depth]
+	if not _ghost_mats.has(key):
+		var m := ShaderMaterial.new()
+		m.shader = GHOST_DEPTH_SHADER if depth else GHOST_SHADER
+		m.set_shader_parameter("tail", tail)
+		m.render_priority = -1 if depth else 0
+		_ghost_mats[key] = m
+	return _ghost_mats[key]
+
+
+## Ausrüstung verbraucht darstellen: jedes Material wird durch eine verblasste, verschmutzte Fassung ersetzt
+static func wear(mi: MeshInstance3D, seed_value: float) -> void:
+	var mesh := mi.mesh
+	for i in mesh.get_surface_count():
+		var src := mi.get_surface_override_material(i)
+		if src == null:
+			src = mesh.surface_get_material(i)
+		if src is StandardMaterial3D:
+			mi.set_surface_override_material(i, worn_material(src as StandardMaterial3D, seed_value))
+
+
+static func worn_material(src: StandardMaterial3D, seed_value: float) -> Material:
+	if src.shading_mode == BaseMaterial3D.SHADING_MODE_UNSHADED or src.transparency != BaseMaterial3D.TRANSPARENCY_DISABLED:
+		return src
+	var m := ShaderMaterial.new()
+	m.shader = WORN_SHADER
+	m.set_shader_parameter("albedo", src.albedo_color)
+	m.set_shader_parameter("has_tex", src.albedo_texture != null)
+	if src.albedo_texture:
+		m.set_shader_parameter("albedo_tex", src.albedo_texture)
+	m.set_shader_parameter("metallic", src.metallic)
+	m.set_shader_parameter("seed", seed_value)
+	return m
 
 
 func _dim_mat() -> StandardMaterial3D:
