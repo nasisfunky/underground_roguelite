@@ -2,8 +2,13 @@
 // Jede Hülle (layer_k 0..1) wird weiter nach außen geschoben und per Rauschen ausgedünnt,
 // so entsteht ein flackernder schwarzer Flammensaum mit glimmenden Rändern.
 // Vertex-Farbe: a = Maske (0 dort, wo Ausrüstung sitzt), rgb = Haarrichtung (nur Kopf), UV.x = Haarstärke.
+// Der schwarze Teil wird genau wie der Körper beleuchtet (gleiche Farbe, gleiche Lichtkappe wie
+// shade_skin.gdshader), damit Körper und Flammen eine Masse bleiben; nur die Spitzen glimmen selbst.
 shader_type spatial;
-render_mode unshaded, cull_front, world_vertex_coords, shadows_disabled;
+render_mode cull_front, world_vertex_coords, diffuse_lambert, specular_disabled;
+
+uniform vec3 albedo : source_color = vec3(0.05, 0.05, 0.06); // wie shade_skin.gdshader
+uniform float light_cap = 3.0; // wie shade_skin.gdshader
 
 uniform float layer_k = 0.5;
 uniform float thick = 0.011;
@@ -19,6 +24,7 @@ varying vec3 wp;
 varying float vm;
 varying float vup;
 varying float vr;
+varying vec3 wn_out; // Normale der Körperoberfläche darunter (nach außen), auch auf den Rückseiten der Hülle
 
 float fh(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
 float fn3(vec3 x) {
@@ -47,6 +53,7 @@ void vertex() {
 	vm = m;
 	vup = up;
 	vr = r;
+	wn_out = wn;
 }
 
 void fragment() {
@@ -63,5 +70,14 @@ void fragment() {
 	float edge = 1.0 - smoothstep(0.0, mix(0.045, 0.08, hz), n - thr);
 	vec3 c = mix(vec3(0.0), mix(heat, hot, layer_k), smoothstep(0.5, 1.0, layer_k) * mix(0.55, 0.85, hz));
 	c = mix(c, hot * mix(1.0, 1.4, hz), edge * smoothstep(0.2, 0.85, layer_k));
-	ALBEDO = c * glow;
+	NORMAL = normalize((VIEW_MATRIX * vec4(wn_out, 0.0)).xyz);
+	ALBEDO = albedo;
+	ROUGHNESS = 1.0;
+	SPECULAR = 0.0;
+	EMISSION = c * glow;
+}
+
+void light() {
+	vec3 l = ATTENUATION * LIGHT_COLOR / PI * max(dot(NORMAL, LIGHT), 0.0);
+	DIFFUSE_LIGHT += light_cap * (vec3(1.0) - exp(-l / light_cap));
 }
