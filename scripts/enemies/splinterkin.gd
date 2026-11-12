@@ -9,13 +9,14 @@ extends Enemy
 
 signal respawn_requested(kin: Splinterkin)
 
-enum S { LURK, HUNT, WINDUP, LEAP, RECOVER, STAGGER, DEAD }
+enum S { LURK, HUNT, WINDUP, LEAP, RECOVER, STAGGER, DEAD, KNOCKDOWN }
 
 const VIOLET := Color(0.72, 0.52, 1.0)
 const LEG_UP := 0.3
 const LEG_LO := 0.36
 const BODY_Y := 0.42
 const STEP_TIME := 0.13
+const KNOCKDOWN_TIME := 1.6
 const FOOT_CHANNELS := ["foot_fl", "foot_fr", "foot_bl", "foot_br"]
 
 @export var move_speed := 4.3
@@ -67,6 +68,7 @@ func _ready() -> void:
 	target_height = 0.95
 	radius = 0.34
 	body_height = 0.8
+	stagger_resist = 1.25  # leicht: Treffer werfen es länger aus dem Tritt
 	super._ready()
 	_rng.randomize()
 	facing_yaw = rotation.y
@@ -204,6 +206,7 @@ func _physics_process(delta: float) -> void:
 				info.knockback = 3.5
 				info.hitstop = 0.06
 				info.shake = 0.25
+				info.stagger = 0.3  # leichter Sprungbiss: kurze Unterbrechung
 				_hitbox.activate(info)
 		S.LEAP:
 			desired = _leap_dir * _leap_v * (1.0 - 0.4 * state_t / leap_time)
@@ -216,6 +219,11 @@ func _physics_process(delta: float) -> void:
 			if state_t >= recover_time:
 				_release_token()
 				_cooldown = _rng.randf_range(1.6, 3.2)
+				_set_state(S.HUNT)
+		S.KNOCKDOWN:
+			if state_t >= KNOCKDOWN_TIME:
+				_release_token()
+				_cooldown = _rng.randf_range(0.6, 1.2)
 				_set_state(S.HUNT)
 		S.STAGGER:
 			if state_t >= _stagger_len:
@@ -297,6 +305,7 @@ func anim_action() -> String:
 		S.LEAP: return "leap"
 		S.RECOVER: return "recover"
 		S.STAGGER: return "stagger"
+		S.KNOCKDOWN: return "knockdown"
 	return "move"
 
 
@@ -306,6 +315,7 @@ func anim_time() -> float:
 		S.LEAP: return state_t / leap_time
 		S.RECOVER: return state_t / recover_time
 		S.STAGGER: return state_t / _stagger_len
+		S.KNOCKDOWN: return state_t / KNOCKDOWN_TIME
 	return fposmod(_time / 0.8, 1.0)
 
 
@@ -324,6 +334,9 @@ func preview(action: String, k: float, delta: float) -> void:
 		"stagger":
 			state = S.STAGGER
 			state_t = k * _stagger_len
+		"knockdown":
+			state = S.KNOCKDOWN
+			state_t = k * KNOCKDOWN_TIME
 		_:
 			state = S.HUNT
 			_time = k * 0.8 - delta
@@ -361,6 +374,11 @@ func _animate(delta: float) -> void:
 			crouch_t = 0.5 * (1.0 - smoothstep(0.0, 1.0, state_t / recover_time))
 		S.STAGGER:
 			crouch_t = 0.3
+		S.KNOCKDOWN:
+			# hochgeschleudert, landet auf dem Rücken und rappelt sich wieder auf
+			var k := state_t / KNOCKDOWN_TIME
+			hop_t = sin(clampf(k / 0.3, 0.0, 1.0) * PI) * 0.8
+			crouch_t = 0.8 * (1.0 - smoothstep(0.65, 1.0, k))
 		S.DEAD:
 			crouch_t = 1.0
 	_crouch = lerpf(_crouch, crouch_t, 1.0 - exp(-12.0 * delta))
@@ -373,6 +391,11 @@ func _animate(delta: float) -> void:
 	_torso.rotation = Vector3(-_lean.y - 0.25 * _hop + 0.2 * _crouch * (1.0 if state == S.WINDUP else 0.0), 0.0, _lean.x)
 	if state == S.STAGGER:
 		_torso.rotation.z += sin(_time * 40.0) * 0.12
+	if state == S.KNOCKDOWN:
+		var k := state_t / KNOCKDOWN_TIME
+		var tip := smoothstep(0.0, 0.25, k) * (1.0 - smoothstep(0.7, 0.95, k))
+		_torso.rotation.x += 1.9 * tip  # Bauch nach oben
+		_torso.rotation.z += sin(_time * 30.0) * 0.1 * tip
 	# Zusätze aus der Animationswerkstatt (data/enemy_anims/splinterkin.json)
 	_anim_off = CreatureAnim.sample("splinterkin", anim_action(), anim_time()) if state != S.DEAD else {}
 	_torso.position += _anim_off.get("torso_pos", Vector3.ZERO)
@@ -452,18 +475,25 @@ func _seg_basis(along: Vector3) -> Basis:
 # Treffer
 # ------------------------------------------------------------------
 
-func _on_hit(_info: DamageInfo, _dir: Vector3) -> void:
+func _on_hit(info: DamageInfo, dir: Vector3) -> void:
 	_flash_t = 0.08
 	for m in _meshes:
 		m.material_overlay = _flash_mat
 	if state == S.LURK:
 		_player = Game.nearest_player(global_position, 40.0)
 		_set_state(S.HUNT)
-	if poise <= 0.0 and state != S.DEAD and not (state == S.STAGGER and _stagger_len - state_t > 0.6):
+	if state in [S.DEAD, S.KNOCKDOWN]:
+		return
+	var r := hit_reaction(info, state in [S.WINDUP, S.LEAP])
+	if r < 0.0:
 		_hitbox.deactivate()
 		_eye_mat.emission_energy_multiplier = 3.0
-		_stagger_len = 0.6
-		poise = max_poise
+		_knock = dir * maxf(info.knockback, 5.0)
+		_set_state(S.KNOCKDOWN)
+	elif r > 0.0 and not (state == S.STAGGER and _stagger_len - state_t > r):
+		_hitbox.deactivate()
+		_eye_mat.emission_energy_multiplier = 3.0
+		_stagger_len = r
 		_set_state(S.STAGGER)
 
 

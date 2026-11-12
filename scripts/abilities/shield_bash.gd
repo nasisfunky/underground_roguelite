@@ -32,6 +32,7 @@ func update(p: Player, t: float, delta: float) -> bool:
 		info.poise_damage = 60.0
 		info.hitstop = 0.08
 		info.shake = 0.3
+		info.stagger = 0.9
 		if p.hit_cone(1.9, 55.0, info) > 0:
 			FX.sparks(p, p.global_position + p.forward() * 0.9 + Vector3.UP * 1.2, Color(0.9, 0.95, 1.0), 10, 1.2)
 	return t >= duration

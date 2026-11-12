@@ -28,6 +28,7 @@ func _ready() -> void:
 	await _test_finishers()
 	await _test_real_enemy()
 	await _test_weapons()
+	await _test_impact()
 	await _test_menu()
 
 	print("\n=== COMBAT TEST: %s (%d Fehler) ===" % ["OK" if fails == 0 else "FEHLER", fails])
@@ -314,6 +315,124 @@ func _test_menu() -> void:
 
 
 # ------------------------------------------------------------------
+
+## Abbrechen, Unterbrechen je Waffe, Umwerfen (Gegner und Spieler).
+func _test_impact() -> void:
+	_reset(Vector3(-6, 0.1, 10.5))
+	p.set_weapon(&"sword")
+	p.set_offhand(&"shield")
+	await _draw_on()
+	await _phys(40)
+	# 1) normaler Hieb lässt sich per Rolle abbrechen
+	p.combo_chain.assign([&"cut", &"", &"", &"", &""])
+	p._chain_idle = 99.0
+	p._chain_i = 0
+	p._set_stamina(p.max_stamina)
+	p.input._attack = 1
+	for i in 60:
+		await get_tree().physics_frame
+		if p._swing_t >= 0.0 and p._swing_t / p.swing_duration > 0.3:
+			break
+	p.input._roll_pressed = true
+	await _phys(4)
+	_check("Hieb per Rolle abbrechen", p.state == Player.State.ROLL and p._swing_t < 0.0, str(p.state))
+	await _phys(70)
+	# 2) Zweihandaxt: ab dem Ausholen festgelegt
+	_reset(Vector3(-6, 0.1, 10.5))
+	p.set_weapon(&"greataxe")
+	p.set_offhand(&"")
+	await _phys(60)
+	p.combo_chain.assign([&"cleave", &"", &"", &"", &""])
+	p._chain_idle = 99.0
+	p._chain_i = 0
+	p._set_stamina(p.max_stamina)
+	p.input._attack = 1
+	var m: ComboModule = null
+	for i in 90:
+		await get_tree().physics_frame
+		m = p._module
+		if m and p._swing_t / p.swing_duration > m.hits[0] - 0.1:
+			break
+	p.input._roll_pressed = true
+	await _phys(4)
+	_check("Axt-Finisher festgelegt: Rolle wartet", p.state == Player.State.MOVE and p._swing_t >= 0.0 and p.swing_committed(), str(p.state))
+	var rolled := false
+	for i in 90:
+		await get_tree().physics_frame
+		if p.state == Player.State.ROLL:
+			rolled = true
+			break
+	_check("Rolle kommt nach dem Schlag", rolled, "")
+	await _phys(70)
+	# 3) Unterbrechung je Waffe am Hollowed
+	var h := Hollowed.new()
+	h.position = C + Vector3(-6, 0.05, 6.0)
+	level.add_child(h)
+	_spawned.append(h)
+	await _phys(5)
+	p.set_weapon(&"dagger")
+	p.set_offhand(&"shield")
+	await _phys(2)
+	h.receive_hit(p.module_info(ComboModules.make(&"cut")))
+	var dagger_len := h._stagger_len
+	await _phys(60)
+	p.set_weapon(&"greataxe")
+	p.set_offhand(&"")
+	await _phys(2)
+	h.receive_hit(p.module_info(ComboModules.make(&"cut")))
+	var axe_len := h._stagger_len
+	_check("Dolch unterbricht kurz, Axt lange", dagger_len < 0.3 and axe_len > 0.6, "Dolch %.2f s, Axt %.2f s" % [dagger_len, axe_len])
+	await _phys(80)
+	# ausholender Gegner: Dolchstich hält ihn nicht auf
+	p.set_weapon(&"dagger")
+	p.set_offhand(&"shield")
+	h.poise = h.max_poise
+	h._set_state(Hollowed.S.WINDUP)
+	h.receive_hit(p.module_info(ComboModules.make(&"cut")))
+	_check("Ausholender Hollowed: Dolch unterbricht nicht", h.state == Hollowed.S.WINDUP, str(h.state))
+	await _phys(2)
+	# Axt-Finisher wirft um
+	p.set_weapon(&"greataxe")
+	p.set_offhand(&"")
+	await _phys(2)
+	var heavy := p.module_info(ComboModules.make(&"cleave"))
+	h.receive_hit(heavy)
+	_check("Axt-Finisher wirft den Hollowed um", heavy.knockdown and h.state == Hollowed.S.KNOCKDOWN, "%s %s" % [heavy.knockdown, h.state])
+	await _phys(int(Hollowed.KNOCKDOWN_TIME * 60) + 20)
+	_check("Hollowed steht wieder auf", h.state != Hollowed.S.KNOCKDOWN, str(h.state))
+	await _clear()
+	# 4) Spieler: Unterbrechung je nach Angriff, schwerer Treffer wirft um
+	_reset(Vector3(-6, 0.1, 10.5))
+	p.set_weapon(&"sword")
+	p.set_offhand(&"shield")
+	await _phys(30)
+	var src := Node3D.new()
+	level.add_child(src)
+	src.global_position = p.global_position + Vector3(0, 0, -1.5)
+	var lens: Array[float] = []
+	for st in [0.3, 0.8]:
+		var info := DamageInfo.new()
+		info.amount = 1.0
+		info.source = src
+		info.stagger = st
+		p.receive_hit(info)
+		lens.append(p._stagger_len)
+		await _phys(70)
+	_check("Spieler: Unterbrechung je nach Angriff", is_equal_approx(lens[0], 0.3) and is_equal_approx(lens[1], 0.8), str(lens))
+	var kd := DamageInfo.new()
+	kd.amount = 1.0
+	kd.source = src
+	kd.knockback = 7.0
+	kd.knockdown = true
+	var z0 := p.global_position.z
+	p.receive_hit(kd)
+	await _phys(30)
+	_check("Spieler umgeworfen und nach hinten geschleudert", p.state == Player.State.KNOCKDOWN and p.global_position.z - z0 > 0.8, "%s, %.1f m" % [p.state, p.global_position.z - z0])
+	_check("Am Boden unverwundbar", p.is_invulnerable(), "")
+	await _phys(int(Player.KNOCKDOWN_TIME * 60) + 10)
+	_check("Spieler steht wieder auf", p.state == Player.State.MOVE, str(p.state))
+	src.queue_free()
+
 
 func _dummy(local: Vector3) -> TrainingDummy:
 	var d := TrainingDummy.new()

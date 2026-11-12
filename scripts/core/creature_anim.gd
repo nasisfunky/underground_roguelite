@@ -21,7 +21,8 @@ const CREATURES := {
 			["windup", "Crouch before the leap", false, 0.6, "Eyes flare up, it ducks (0.6 s)."],
 			["leap", "Leap", false, 0.32, "The jump itself, deals damage (0.32 s)."],
 			["recover", "Landing / recover", false, 0.85, "Defenceless after landing (0.85 s)."],
-			["stagger", "Staggered", false, 0.5, "After a heavy hit."],
+			["stagger", "Staggered", false, 0.5, "Interrupted by a hit (length depends on the weapon)."],
+			["knockdown", "Knocked down", false, 1.6, "Thrown onto its back by a very heavy hit, then scrambles up."],
 		],
 		"channels": [
 			["torso", "Body (core + crown)", "rot"],

@@ -141,7 +141,15 @@ Werte stehen als `@export` im Inspector und lassen sich live anpassen (`scripts/
 - **Rolle**: Unverwundbarkeit ab dem ersten Frame (0,32 s), Tempo vorne hoch und hinten weich,
   ab 0,36 s abbrechbar, rollt durch Gegner hindurch.
 - **Angriffe mit Eingabepuffer**: Ein Klick bis 0,5 s vor dem Kombofenster wird vorgemerkt.
-  Rollen bricht einen Hieb ab.
+  Rollen, Blocken, Springen und Fähigkeiten brechen einen Hieb jederzeit ab. Ausnahme
+  wuchtige Schläge (Finisher-Bausteine und alle Angriffe mit der Zweihandaxt): ab 0,2 s vor dem
+  Treffer bis kurz danach ist man festgelegt, eine vorgemerkte Rolle kommt erst danach.
+- **Unterbrechung je Waffe** (`WeaponDef.stagger`, `DamageInfo.stagger`): Dolch ×0,45, Schwert ×1,
+  Speer ×1 (zweihändig ×1,3), Axt ×1,9. Ein normaler Schnitt hält einen Hollowed etwa 0,16 s (Dolch)
+  bis 0,66 s (Axt) fest. Wer gerade selbst ausholt, wird nur bei Haltungsbruch (Poise) unterbrochen.
+  Gilt auch für den Spieler (Hollowed-Hieb 0,6 s, Splinterkin-Sprung 0,3 s, Schildbruch mind. 0,8 s).
+- **Umwerfen**: Treffer ab 1 s Unterbrechung (schwere Finisher, Heavy Strike) werfen nach hinten um.
+  Liegend unverwundbar bis zum Aufstehen, danach kann man sich herausrollen.
 - **Treffer-Feedback**: Hitstop (40–120 ms), Screenshake, Funken, Schadenszahlen, Aufblitzen.
 - **Kamera** mit Kollision und weichem Nachführen, folgt der interpolierten Position
   (Physik 60 Hz mit Interpolation, also flüssig bei 144 Hz).

@@ -8,12 +8,14 @@ extends Enemy
 
 signal respawn_requested(hollowed: Hollowed)
 
+const KNOCKDOWN_TIME := 2.3  ## umgeworfen: fallen, liegen, aufstehen
+const KNOCKDOWN_GETUP := 1.3
 const CLIP := "hollowed_strike"  ## eigene Angriffsanimation (Animationswerkstatt)
 const VIOLET := Color(0.72, 0.52, 1.0)
 const HEM_HEAT := "#1c0b3d"
 const HEM_HOT := "#9f6bff"
 
-enum S { IDLE, CHASE, WINDUP, STRIKE, RECOVER, STAGGER, DEAD }
+enum S { IDLE, CHASE, WINDUP, STRIKE, RECOVER, STAGGER, DEAD, KNOCKDOWN }
 
 @export var move_speed := 3.0
 @export var aggro_range := 14.0
@@ -115,6 +117,7 @@ func _physics_process(delta: float) -> void:
 				info.knockback = 5.0
 				info.hitstop = 0.08
 				info.shake = 0.4
+				info.stagger = 0.6  # Überkopfhieb mit der Klinge: deutliche Unterbrechung
 				_hitbox.activate(info)
 		S.STRIKE:
 			desired = _forward() * 7.0
@@ -129,6 +132,10 @@ func _physics_process(delta: float) -> void:
 		S.STAGGER:
 			if state_t >= _stagger_len:
 				_cooldown = randf_range(0.4, 1.0)
+				_set_state(S.CHASE)
+		S.KNOCKDOWN:
+			if state_t >= KNOCKDOWN_TIME:
+				_cooldown = randf_range(0.3, 0.8)
 				_set_state(S.CHASE)
 		S.DEAD:
 			if state_t > 3.5:
@@ -177,6 +184,10 @@ func _animate(delta: float) -> void:
 		S.STAGGER:
 			body.action = &"stagger"
 			body.action_t = state_t / _stagger_len
+		S.KNOCKDOWN:
+			body.action = &"knockdown"
+			body.action_t = state_t / KNOCKDOWN_TIME
+			body.knockdown_getup = KNOCKDOWN_GETUP / KNOCKDOWN_TIME
 		S.DEAD:
 			body.action = &"dead"
 			body.action_t = state_t
@@ -214,14 +225,30 @@ func _stagger(duration: float) -> void:
 	_set_state(S.STAGGER)
 
 
-func _on_hit(_info: DamageInfo, _dir: Vector3) -> void:
+func _on_hit(info: DamageInfo, dir: Vector3) -> void:
 	body.flash(0.09)
 	_poise_regen_wait = 2.0
 	if state == S.IDLE:
 		_player = Game.nearest_player(global_position, 40.0)
 		_set_state(S.CHASE)
-	if poise <= 0.0 and state != S.DEAD and not (state == S.STAGGER and _stagger_len - state_t > 0.55):
-		_stagger(0.55)
+	if state in [S.DEAD, S.KNOCKDOWN]:
+		return
+	var r := hit_reaction(info, state in [S.WINDUP, S.STRIKE])
+	if r < 0.0:
+		_knockdown(dir, info)
+	elif r > 0.0 and not (state == S.STAGGER and _stagger_len - state_t > r):
+		_stagger(r)
+
+
+## Nach hinten umgeworfen (besonders schwerer Treffer).
+func _knockdown(dir: Vector3, info: DamageInfo) -> void:
+	_hitbox.deactivate()
+	body.set_eye_intensity(2.6)
+	_knock = dir * maxf(info.knockback, 6.0)
+	facing_yaw = atan2(dir.x, dir.z)  # dem Angreifer zugewandt: fällt rückwärts
+	poise = max_poise
+	FX.number(self, target_point() + Vector3.UP * 0.3, "Knocked down", Color(1.0, 0.6, 0.3))
+	_set_state(S.KNOCKDOWN)
 
 
 func hold(duration: float) -> void:

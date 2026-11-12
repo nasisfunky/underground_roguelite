@@ -11,6 +11,8 @@ var poise_damage: float = 10.0
 var hitstop: float = 0.05
 var heavy := false
 var shake := 0.2
+var stagger := 0.4  ## so lange (s) wird das Ziel unterbrochen, wenn der Treffer durchkommt
+var knockdown := false  ## besonders schwerer Treffer: wirft das Ziel um / nach hinten
 
 
 func duplicate_info() -> DamageInfo:
@@ -22,4 +24,6 @@ func duplicate_info() -> DamageInfo:
 	d.hitstop = hitstop
 	d.heavy = heavy
 	d.shake = shake
+	d.stagger = stagger
+	d.knockdown = knockdown
 	return d
