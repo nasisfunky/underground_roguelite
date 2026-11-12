@@ -1,6 +1,6 @@
 extends Node
 ## Entwickler-Werkzeug: rendert Grimhauler, Hollow One und Willambers zu festen Zeitpunkten als PNG.
-## Aufruf: godot --path . tools/preview_willfaults_v3.tscn -- <out_dir> <grimhauler|hollow|willamber> [hell|dunkel] [angriff] [kiln|rimefall|glowmire]
+## Aufruf: godot --path . tools/preview_willfaults_v3.tscn -- <out_dir> <grimhauler|hollow|willamber> [hell|dunkel] [angriff] [clip] [kiln|rimefall|glowmire]
 
 const VIEWS := [["front", 0.0], ["side", 1.35], ["back", 3.0], ["three", 0.7]]
 
@@ -79,6 +79,20 @@ func _ready() -> void:
 			subj = h
 			dist = 3.6
 			look_y = 1.15
+	# "clip": durchgehende Bildfolge mit 30 fps und langsam kreisender Kamera (für Videos)
+	if "clip" in args:
+		var dur := {"grimhauler": 4.8 if attack else 4.2, "hollow": 6.8 if attack else 5.0, "willamber": 8.0}[who] as float
+		for f in int(dur * 30.0):
+			for k in 2:
+				subj.call("tick", 1.0 / 60.0)
+			var a := 0.6 + 0.5 * sin(f / (dur * 30.0) * TAU)
+			cam.position = Vector3(sin(a) * -dist, look_y + dist * 0.18, -cos(a) * dist)
+			cam.look_at(Vector3(0, look_y, 0))
+			await get_tree().process_frame
+			await RenderingServer.frame_post_draw
+			get_tree().root.get_texture().get_image().save_png(out_dir.path_join("f%04d.png" % f))
+		get_tree().quit()
+		return
 	var times: Array = [0.4, 1.2, 1.8, 2.2, 3.4] if attack else [0.5, 1.4]
 	if who == "willamber":
 		times = [1.0, 2.5, 3.3, 4.1, 5.0]

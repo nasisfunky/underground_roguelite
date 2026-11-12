@@ -54,6 +54,8 @@ func _ready() -> void:
 	var args := OS.get_cmdline_user_args()
 	if args.size() >= 2 and args[0] == "shots":
 		_shots(args[1])
+	elif args.size() >= 4 and args[0] == "clip":
+		_clip(args[1], int(args[2]), args[3] == "atk", args.size() > 4 and args[4] == "dunkel")
 
 
 func _spawn_hollow() -> void:
@@ -236,6 +238,33 @@ func _shots(dir: String) -> void:
 		await get_tree().process_frame
 		await RenderingServer.frame_post_draw
 		get_viewport().get_texture().get_image().save_png(dir.path_join("%d_dark.png" % i))
+	get_tree().quit()
+
+
+## Videoclip: Bildfolge mit 30 fps, Kamera kreist langsam (godot ... -- clip <dir> <0|1|2> <walk|atk> [dunkel])
+func _clip(dir: String, station: int, atk: bool, dark: bool) -> void:
+	set_process(false)
+	_label.visible = false
+	if dark:
+		bright = false
+		_apply_light()
+	_set_attacking(atk)
+	_set_focus(station)
+	_dist *= [0.8, 1.0, 1.0][station]
+	for k in 90:
+		_step(1.0 / 60.0)
+	var dur: float = [[6.3, 4.8], [5.0, 6.8], [8.0, 8.0]][station][int(atk)]
+	var n := int(dur * 30.0)
+	var yaw0: float = [_yaw, PI - 0.5, PI - 0.7][station]  # Hollow und Willambers von vorn
+	_pitch = [_pitch, 0.18, 0.3][station]
+	for f in n:
+		_step(1.0 / 60.0)
+		_step(1.0 / 60.0)
+		_yaw = yaw0 + 0.45 * sin(float(f) / n * TAU)
+		_process_cam_only()
+		await get_tree().process_frame
+		await RenderingServer.frame_post_draw
+		get_viewport().get_texture().get_image().save_png(dir.path_join("f%04d.png" % f))
 	get_tree().quit()
 
 
