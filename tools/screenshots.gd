@@ -22,6 +22,9 @@ func _ready() -> void:
 		["07_hollowed_close", Vector3(-3, -2.9, -70), 0.0, -0.1, 3.5],
 		["08_splinterkin", Vector3(-9.5, -2.9, -63.5), -1.2, -0.25, 3.2],
 		["09_player_front", Vector3(0, 0.1, 9), PI, -0.08, 2.4],
+		["10_cistern", Vector3(24.5, 0.1, -29.0), -0.95, -0.3, 8.0],
+		["11_cistern_pool", Vector3(29.0, 0.1, -32.4), 0.15, -0.38, 6.5],
+		["12_cistern_towers", Vector3(37.0, 0.1, -33.0), -0.55, -0.22, 7.0],
 	]
 	for s in shots:
 		p.global_position = s[1]

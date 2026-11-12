@@ -71,9 +71,12 @@ func _setup_input() -> void:
 	_key("move_left", [KEY_A, KEY_LEFT])
 	_key("move_right", [KEY_D, KEY_RIGHT])
 	_key("jump", [KEY_SPACE])
-	_key("roll", [KEY_SHIFT])
+	_key("sprint", [KEY_SHIFT])
+	_key_loc("roll", KEY_ALT, KEY_LOCATION_LEFT)
 	_key("block", [KEY_Q])
-	_key("target_next", [KEY_TAB])
+	# Y/X nach Beschriftung (QWERTZ: Y liegt dort, wo auf US-Tastaturen Z ist)
+	_key_label("draw_weapon", KEY_Y)
+	_key_label("toggle_light", KEY_X)
 	for i in range(1, 10):
 		_key("ability_%d" % i, [KEY_0 + i])
 	_key("toggle_help", [KEY_F1])
@@ -92,6 +95,23 @@ func _key(action: String, keys: Array) -> void:
 		var ev := InputEventKey.new()
 		ev.physical_keycode = k
 		InputMap.action_add_event(action, ev)
+
+
+func _key_loc(action: String, key: Key, loc: KeyLocation) -> void:
+	if not InputMap.has_action(action):
+		InputMap.add_action(action, 0.2)
+	var ev := InputEventKey.new()
+	ev.physical_keycode = key
+	ev.location = loc
+	InputMap.action_add_event(action, ev)
+
+
+func _key_label(action: String, key: Key) -> void:
+	if not InputMap.has_action(action):
+		InputMap.add_action(action, 0.2)
+	var ev := InputEventKey.new()
+	ev.keycode = key
+	InputMap.action_add_event(action, ev)
 
 
 func _mouse(action: String, button: MouseButton) -> void:

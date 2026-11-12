@@ -72,16 +72,19 @@ func setup(p: Player) -> void:
 	# --- Hilfe oben links ---
 	_help = _label(13, Color(0.8, 0.92, 0.92, 0.9))
 	_help.position = Vector2(18, 16)
-	_help.text = """WASD  move        Space  jump (hold = higher)
-Shift  roll (in move direction)        Hold right mouse / Q  block (early = parry)
-Mouse  camera        Mouse wheel  zoom        Hold Alt  free cursor
+	_help.text = """WASD  move        Space  jump (hold = higher)        Shift  sprint
+Left Alt  roll (weapon drawn: back/side rolls relative to camera)
+Hold right mouse / Q  block (early = parry)
+Y  draw / sheathe weapon        X  raise / stow light
+Mouse  camera        Mouse wheel  zoom        Esc  pause (frees the cursor)
 Left click  attack (click again in rhythm = combo)
 Middle mouse  thrust (sword alt attack, more reach)
 1  Heavy Strike        2  Shield Bash
+Walk into grates/lichen to climb (costs stamina), swim to a ledge to climb out
 F1 Help   F2 Change culture   F3 Debug   F4 Test explosion   Esc Pause"""
 	root.add_child(_help)
 	_mode = _label(13, Color(1.0, 0.85, 0.5, 0.9))
-	_mode.position = Vector2(18, 192)
+	_mode.position = Vector2(18, 250)
 	root.add_child(_mode)
 
 	# --- Raumtitel ---

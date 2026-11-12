@@ -1,6 +1,6 @@
 # Underground Roguelite – Solo-Prototyp
 
-Low-Poly Action-Roguelite in Godot 4.7. Dieser Stand ist ein Testlevel mit drei Räumen,
+Low-Poly Action-Roguelite in Godot 4.7. Dieser Stand ist ein Testlevel mit vier Räumen,
 um Steuerung, Kamera und Kampfgefühl auszuprobieren. Die Shades im Frayed-Stil stammen aus der
 Konzeptseite (siehe unten), die Trainingspuppe aus Blender, die Level-Geometrie entsteht prozedural im Code.
 
@@ -27,18 +27,34 @@ Alle Texte im Spiel sind Englisch, Code-Kommentare und Doku Deutsch.
 | Mittlere Maustaste | Alternativangriff der Waffe, beim Schwert ein Stich (mehr Reichweite und Schaden, schmal) |
 | Mausrad | Zoom |
 | Leertaste | springen (halten = höher, antippen = kleiner Hüpfer) |
-| Shift | rollen in Laufrichtung (kurz unverwundbar, kostet Ausdauer) |
+| Shift halten | sprinten (~7 m/s, kostet Ausdauer; leer = erst nach etwas Erholung wieder) |
+| Alt links | rollen (kurz unverwundbar, kostet Ausdauer). Ohne Waffe immer vorwärts in Laufrichtung; mit gezogener Waffe relativ zur Kamera: zurück = Rückwärtsrolle, seitlich = Seitenrolle (Blick bleibt vorn) |
+| Y | Waffe ziehen oder wegstecken. Mit Y gezogen bleibt sie gezogen; durch Angriff/Block gezogen wird sie nach 6 s ohne Kampf wieder weggesteckt |
+| X | Licht vorhalten oder wegstecken. Mit Licht zieht Y nur die Waffe; X steckt das Licht weg und nimmt den Schild |
 | Rechte Maustaste (oder Q) halten | blocken in Kamerarichtung (Ausdauer statt Leben). Q kurz vor dem Treffer = Parade |
 | 1 / 2 | Heavy Strike / Shield Bash |
-| Alt halten | Cursor freigeben |
 | F2 | Kultur der Spielfigur wechseln (The Kiln → Rimefall → Glowmire) |
-| F1 / F3 / Esc | Hilfe / Debug-Anzeige / Pause |
+| F1 / F3 / Esc | Hilfe / Debug-Anzeige / Pause (gibt den Cursor frei) |
+
+**Ausrüstung:** Einhandwaffe hängt an der linken Hüfte (Säbel und Klinge in einer Scheide, die Axt in einer
+Schlaufe), der Schild auf dem Rücken, die Laterne an der rechten Hüfte (Glowmire: Laternenstab schräg auf
+dem Rücken). Ohne Waffe in der Hand schwingen die Arme beim Gehen gegengleich zu den Beinen, beim Sprint angewinkelt.
+
+**Klettern:** gegen Gitter oder Flechten laufen. WASD klettert, Leertaste springt von der Wand weg,
+Alt lässt los. Oben über eine Kante zieht sich die Figur selbst hoch. Klettern kostet Ausdauer
+(Festhalten weniger); ist sie leer, fällt man.
+
+**Schwimmen** (kein Tauchen): Kopf und Schultern bleiben über Wasser. Shift = schneller schwimmen (Ausdauer).
+Gegen eine niedrige Kante schwimmen (oder Leertaste) = rausklettern. Waffen und Licht werden beim Klettern
+und Schwimmen weggesteckt, das Licht kommt danach wieder.
+
+**Stürze** ab 3,2 m: die Figur rollt sich beim Aufkommen ab, nach vorn, oder nach hinten, wenn vorn kein Platz ist.
 
 Es gibt **kein Anvisieren**: Angriffe gehen in Kamerarichtung und treffen alles im Bogen davor.
 Jeder Hieb kostet Ausdauer. Während eines Hiebs läuft der Charakter kaum weiter und
 verlagert sein Gewicht kurz vor dem Treffer nach vorn.
 
-## Die drei Räume
+## Die vier Räume
 
 1. **The Threshold** – Tor nach Vigil, Laufen, Springen, Rampe und Trümmer-Parcours.
 2. **Wardens' Ring** – drei Trainingspuppen für Angriffe und Fähigkeiten.
@@ -49,6 +65,14 @@ verlagert sein Gewicht kurz vor dem Treffer nach vorn.
      Sie umkreisen die Laterne, immer nur einer duckt sich (Augen glühen) und springt geradeaus.
      Seitlich ausweichen oder rollen, danach ist er kurz wehrlos.
    Besiegte Gegner erscheinen nach einigen Sekunden neu.
+4. **The Drowned Cistern** (Seitenhalle östlich vom Wardens' Ring) – Bewegung ausprobieren:
+   - Becken mit Wasser im Cel-Look (`assets/shaders/water_toon.gdshader`, Vorbild Wind Waker: zwei Farbstufen,
+     weißer Schaumrand, wandernde Schaumlinien), Rampe zum Hineinwaten, niedrige Kante zum Rausklettern.
+   - Gitterturm (4 m): Eisengitter hochklettern, oben über die Kante ziehen. Von oben ins Becken springen,
+     nach Osten abspringen (Abrollen vorwärts) oder nach Norden zur Wand (Abrollen rückwärts).
+   - Flechtenturm (7,5 m): mit voller Ausdauer knapp zu schaffen, oben ein Kristall.
+   - Flechtenwand an der Nordwand: ohne Ende, irgendwann ist die Ausdauer leer und man stürzt.
+   - Lange Wege durch Gang und Halle zum Sprinten, eine Puppe zum Ausprobieren von Ziehen/Wegstecken.
 
 ## Spielfigur im Frayed-Stil
 
@@ -142,6 +166,17 @@ godot --headless --path . tools/smoke_test.tscn
 ```
 Der Test prüft Laufen, Sprunghöhe, Rolle, Ausdauer, Hiebe, Kombo, Stich,
 Fähigkeiten mit Abklingzeit, Gegnertreffer und Blocken.
+
+```
+godot --headless --fixed-fps 60 --path . tools/movement_test.tscn
+```
+Prüft Tastenbelegung (Alt links, Shift, Y auf QWERTZ), Ziehen/Wegstecken (Gürtel, Rücken, Hand am Griff,
+automatisches Wegstecken), Licht vorhalten und Schild-Tausch, natürliche Armbewegung, Sprint und Erschöpfung,
+Rollen in alle Richtungen (Richtung, Blick, kein Eintauchen in den Boden), Abrollen nach Stürzen,
+Klettern (Tempo, Ausdauer, Rand, Absprung, Hochziehen, Absturz bei leerer Ausdauer), Schwimmen ohne Tauchen,
+Reinspringen, Rausklettern und Rauswaten.
+
+`tools/move_strips.tscn -- <ordner>` (mit Grafik) speichert Filmstreifen aller Bewegungsabläufe zum Begutachten.
 
 ## Animationswerkstatt (Animation Workshop)
 

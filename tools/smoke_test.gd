@@ -67,7 +67,8 @@ func _ready() -> void:
 			dummy = e
 	var hits := [0]
 	dummy.health_changed.connect(func(_c, _m): hits[0] += 1)
-	await _phys(20)
+	p.input._draw = true  # Waffe ziehen (Y); das automatische Ziehen beim Angriff prüft der Bewegungstest
+	await _phys(45)
 	_check("Ohne Klick kein Angriff", hits[0] == 0, "%d Treffer" % hits[0])
 	var st_before := p.stamina
 	p.input._attack = 1

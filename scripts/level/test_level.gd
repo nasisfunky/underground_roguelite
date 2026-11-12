@@ -27,6 +27,8 @@ func _ready() -> void:
 	_build_room_training()
 	_build_ramp_corridor()
 	_build_room_sealed()
+	_build_corridor_x(14.0, 21.0, -34.0, 0.0, 6.0, 9.0)
+	_build_room_cistern()
 	# Flächen, die exakt aufeinanderliegen, ein paar Millimeter auseinanderschieben (Z-Fighting)
 	var bumped := ZFight.fix(_geo)
 	if bumped > 0:
@@ -133,7 +135,7 @@ func _build_room_hall() -> void:
 ## Raum 2: Übungsring der Wardens. Puppen aus Wurzelholz, behängt mit Ausrüstung verblasster Shades.
 func _build_room_training() -> void:
 	var c := Vector3(0, 0, -34)
-	_room_shell(c, Vector2(26, 24), [Vector2(0, 6)], [Vector2(0, 6)], "Wardens' Ring", true)
+	_room_shell(c, Vector2(26, 24), [Vector2(0, 6)], [Vector2(0, 6)], "Wardens' Ring", true, [], [Vector2(-34, 6)])
 	for x in [-4.5, 0.0, 4.5]:
 		var d := TrainingDummy.new()
 		d.position = Vector3(x, 0.05, -34.0 - (1.5 if x == 0.0 else 0.0))
@@ -146,8 +148,8 @@ func _build_room_training() -> void:
 		st.rotation.y = -a + _rng.randf_range(-0.1, 0.1)
 	_fire_bowl(Vector3(-8.5, 0, -27.5), 0.9)
 	_fire_bowl(Vector3(8.5, 0, -40.5), 0.9)
-	_weapon_rack(Vector3(10.6, 0, -30.0), -PI / 2)
-	_gear_pile(Vector3(10.2, 0, -33.6), -1.2, 1)
+	_weapon_rack(Vector3(10.6, 0, -27.0), -PI / 2)
+	_gear_pile(Vector3(10.2, 0, -39.4), -1.2, 1)
 	_gear_pile(Vector3(-10.4, 0, -38.5), 0.8, 0)
 	for p in [Vector3(-11, 0, -24), Vector3(11, 0, -24), Vector3(-11, 0, -44), Vector3(11, 0, -44)]:
 		_pillar(p, 1.1, WALL_H + 2.0, 6)
@@ -223,6 +225,184 @@ func _build_room_sealed() -> void:
 		_spawn_splinterkin(Transform3D(Basis(Vector3.UP, a), Vector3(-12.5 + cos(a) * 1.8, y + 0.1, -64.5 + sin(a) * 1.8)), a)
 
 
+## Raum 4 (Seitenhalle östlich des Übungsrings): "The Drowned Cistern".
+## Alte Zisterne des Grimvault, in der die Wardens Klettern und Schwimmen üben:
+## Becken mit flacher Rampe und niedriger Kante (Reinspringen, Schwimmen, Rausklettern),
+## Turm mit Eisengitter (Klettern, oben Kante zum Hochziehen, Sprung ins Becken, Abrollen),
+## Flechtenturm (7,5 m, Ausdauer reicht knapp), Flechtenwand ohne Ende (Ausdauer leer -> Sturz),
+## enger Spalt zwischen Gitterturm und Nordwand (Sturz mit Wand vorn -> Rückwärtsrolle).
+const CISTERN := Vector3(35, 0, -34)
+const POOL_MIN := Vector2(-11, -12)  ## Becken (lokal zu CISTERN)
+const POOL_MAX := Vector2(3, 0)
+const WATER_Y := -0.4
+const POOL_FLOOR := -2.8
+
+func _build_room_cistern() -> void:
+	var c := CISTERN
+	_room_shell(c, Vector2(28, 28), [], [], "The Drowned Cistern", true, [Vector2(-34, 6)], [], false)
+	var x0 := c.x + POOL_MIN.x
+	var x1 := c.x + POOL_MAX.x
+	var z0 := c.z + POOL_MIN.y
+	var z1 := c.z + POOL_MAX.y
+	# Boden um das Becken herum
+	_slab_floor(Vector2(c.x - 14, z1), Vector2(c.x + 14, c.z + 14), 0.0)
+	_slab_floor(Vector2(x1, c.z - 14), Vector2(c.x + 14, z1), 0.0)
+	_slab_floor(Vector2(c.x - 14, c.z - 14), Vector2(x0, z1), 0.0)
+	_slab_floor(Vector2(x0, c.z - 14), Vector2(x1, z0), 0.0)
+	# Becken: Grund und Wände (Innenflächen 3 cm vor dem Bodenrand, nie bündig)
+	var bc := Vector3((x0 + x1) * 0.5, POOL_FLOOR - 0.2, (z0 + z1) * 0.5)
+	_block(bc, Vector3(x1 - x0 + 0.4, 0.4, z1 - z0 + 0.4), LowPoly.STONE_DARK)
+	var wh := -0.2 - (POOL_FLOOR - 0.2)
+	var wy := (POOL_FLOOR - 0.2 - 0.2) * 0.5
+	_block(Vector3((x0 + x1) * 0.5, wy, z0 - 0.47), Vector3(x1 - x0 + 2.0, wh, 1.0), LowPoly.STONE)
+	_block(Vector3((x0 + x1) * 0.5, wy, z1 + 0.47), Vector3(x1 - x0 + 2.0, wh, 1.0), LowPoly.STONE)
+	_block(Vector3(x0 - 0.47, wy, (z0 + z1) * 0.5), Vector3(1.0, wh, z1 - z0 + 1.9), LowPoly.STONE)
+	_block(Vector3(x1 + 0.47, wy, (z0 + z1) * 0.5), Vector3(1.0, wh, z1 - z0 + 1.9), LowPoly.STONE)
+	# Einstiegsrampe im Südwesten (zum Hineinwaten und wieder Herauslaufen)
+	var rx := c.x - 7.0
+	_ramp(Vector3(rx, POOL_FLOOR, z1 - 5.6), Vector3(rx, -0.06, z1 - 0.25), 3.6)
+	# Beckenrand: niedrige Steinkante (0,58 m über dem Wasser -> Rausklettern), Lücke für die Rampe
+	var curb := LowPoly.STONE_LIGHT.darkened(0.08)
+	_curb(Vector3(x0, 0, z0), Vector3(x1 - 0.3, 0, z0), curb)  # Nordkante bis zum Gitterturm
+	_curb(Vector3(x0, 0, z0), Vector3(x0, 0, z1), curb)  # Westkante
+	_curb(Vector3(x0, 0, z1), Vector3(rx - 1.9, 0, z1), curb)  # Südkante links der Rampe
+	_curb(Vector3(rx + 1.9, 0, z1), Vector3(x1, 0, z1), curb)  # Südkante rechts der Rampe
+	_curb(Vector3(x1, 0, z1), Vector3(x1, 0, z0 + 6.1), curb)  # Ostkante bis zum Turm
+	var water := WaterVolume.new()
+	water.name = "CisternWater"
+	water.size = Vector2(x1 - x0, z1 - z0)
+	water.depth = WATER_Y - POOL_FLOOR + 0.2
+	water.position = Vector3((x0 + x1) * 0.5, WATER_Y, (z0 + z1) * 0.5)
+	add_child(water)
+
+	# Gitterturm am Nordostende des Beckens: Eisengitter an der Südseite, oben eine Plattform (4 m)
+	var tw := Vector3(c.x + 5.0, 0, c.z - 9.0)
+	_block(tw + Vector3(0, 1.75, 0), Vector3(4.0, 4.5, 6.0), LowPoly.STONE)  # reicht 0,5 m unter den Boden
+	_block(tw + Vector3(0, 4.08, 0), Vector3(3.9, 0.2, 5.9), LowPoly.STONE_LIGHT)  # Plattform-Abschluss (eingerückt: keine Kante über dem Gitter)
+	_grate(tw + Vector3(0, 0, 3.0), 3.0, 3.98, Vector3(0, 0, 1))
+	_crystal_cluster(tw + Vector3(1.2, 4.2, -2.2), 0.5)
+	# Flechtenturm im Südosten: 7,5 m, Flechten an der Westseite, oben ein Kristall als Lohn
+	var lt := Vector3(c.x + 10.0, 0, c.z + 8.0)
+	_block(lt + Vector3(0, 3.5, 0), Vector3(3.0, 8.0, 3.0), LowPoly.STONE)
+	_block(lt + Vector3(0, 7.58, 0), Vector3(2.9, 0.2, 2.9), LowPoly.STONE_LIGHT)
+	_lichen(lt + Vector3(-1.5, 0, 0), 2.6, 7.45, Vector3(-1, 0, 0))
+	_crystal_cluster(lt + Vector3(0.6, 7.7, 0.6), 0.6)
+	# Flechtenwand an der Nordwand: reicht bis unter die Decke, oben gibt es keine Kante -> Ausdauer leer = Sturz
+	_lichen(Vector3(c.x + 11.2, 0, c.z - 14.0), 4.0, 12.5, Vector3(0, 0, 1))
+	# Licht: Kristalle am Becken (kühl), Feuerschale am Eingang (warm), Pilze
+	_crystal_cluster(Vector3(x0 - 1.6, 0, z0 - 0.8), 1.0)
+	_crystal_vein(Vector3(x0 - 2.65, 2.2, (z0 + z1) * 0.5), 1.0)
+	_fire_bowl(Vector3(c.x - 11.5, 0, c.z + 4.0), 0.9)
+	_mushrooms(Vector3(c.x + 12.0, 0, c.z - 4.0), 5, 0.9)
+	_mushrooms(Vector3(c.x - 3.0, 0, c.z + 12.0), 4, 0.8)
+	_gear_pile(Vector3(c.x + 2.5, 0, c.z + 9.5), 0.5, 0)
+	var d := TrainingDummy.new()
+	d.position = Vector3(c.x + 1.0, 0.05, c.z + 6.0)
+	d.rotation.y = PI * 0.5
+	add_child(d)
+	_hanging_roots(Vector3(c.x - 4.0, 0, z0 + 2.0), 6.0, 6)
+	_stalactites(c, 12.0, 12.0, 10)
+
+
+## Gang entlang X (zwischen zwei Räumen nebeneinander).
+func _build_corridor_x(x_from: float, x_to: float, z: float, y: float, width: float, height: float) -> void:
+	var length := x_to - x_from
+	var mx := (x_from + x_to) * 0.5
+	_slab_floor(Vector2(x_from, z - width * 0.5), Vector2(x_to, z + width * 0.5), y)
+	for side in [-1.0, 1.0]:
+		_block(Vector3(mx, y + height * 0.5, z + side * (width * 0.5 + 1.0)), Vector3(length - 2.2, height, 2.0), LowPoly.STONE)
+	_block(Vector3(mx, y + height + 0.75, z), Vector3(length - 2.2, 1.5, width + 4.0), LowPoly.STONE_DARK)
+	_mushrooms(Vector3(mx, y, z - width * 0.5 + 0.5), 3, 0.6)
+
+
+## Niedrige Steinkante am Beckenrand (sitzt 2 cm im Boden, ragt 6 cm über das Becken).
+func _curb(a: Vector3, b: Vector3, color: Color) -> void:
+	var along := b - a
+	var length := along.length()
+	if length < 0.3:
+		return
+	var dir := along / length
+	var out := Vector3(-dir.z, 0, dir.x)  # zeigt je nach Richtung ins Becken oder heraus -> Mitte prüfen
+	var pool_c := CISTERN + Vector3((POOL_MIN.x + POOL_MAX.x) * 0.5, 0, (POOL_MIN.y + POOL_MAX.y) * 0.5)
+	if out.dot(pool_c - (a + b) * 0.5) > 0.0:
+		out = -out
+	var w := 0.5
+	var center := (a + b) * 0.5 + out * (w * 0.5 - 0.06) + Vector3(0, 0.08, 0)
+	var size := Vector3(length + w, 0.2, w) if absf(dir.x) > 0.5 else Vector3(w, 0.2, length + w)
+	_block(center, size, color)
+
+
+## Eisengitter zum Klettern vor einer Wand (normal zeigt von der Wand weg).
+func _grate(base: Vector3, width: float, height: float, normal: Vector3) -> void:
+	var sb := StaticBody3D.new()
+	sb.name = "Grate"
+	sb.collision_layer = Game.LAYER_WORLD
+	sb.add_to_group("climbable")
+	sb.position = base + normal * 0.06
+	sb.basis = Basis(Vector3.UP, atan2(normal.x, normal.z))
+	var cs := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(width, height, 0.08)
+	cs.shape = shape
+	cs.position = Vector3(0, height * 0.5, 0)
+	sb.add_child(cs)
+	var iron := LowPoly.mat(Color(0.24, 0.22, 0.19), 0.0, 0.5)
+	var rust := LowPoly.mat(Color(0.34, 0.17, 0.08), 0.0, 0.8)
+	# Rahmen, senkrechte und waagrechte Stäbe (waagrechte liegen vorn: sichtbar versetzt, nie bündig)
+	for sx in [-1.0, 1.0]:
+		LowPoly.mesh_instance(LowPoly.box(Vector3(0.1, height, 0.1)), iron, sb, Vector3(sx * (width * 0.5 - 0.05), height * 0.5, 0.0))
+	LowPoly.mesh_instance(LowPoly.box(Vector3(width, 0.1, 0.12)), iron, sb, Vector3(0, height - 0.05, 0.0))
+	var nv := int(width / 0.3)
+	for i in range(1, nv):
+		var x := -width * 0.5 + width * float(i) / nv
+		LowPoly.mesh_instance(LowPoly.box(Vector3(0.055, height - 0.1, 0.05)), iron, sb, Vector3(x, (height - 0.1) * 0.5, -0.015))
+	var nh := int(height / 0.4)
+	for i in range(1, nh):
+		var y := height * float(i) / nh
+		LowPoly.mesh_instance(LowPoly.box(Vector3(width - 0.12, 0.06, 0.05)), rust if i % 3 == 0 else iron, sb, Vector3(0, y, 0.03))
+	_geo.add_child(sb)
+
+
+## Flechtenvorhang zum Klettern: dichte, hängende Strähnen in gedämpftem Grün-Grau.
+func _lichen(base: Vector3, width: float, height: float, normal: Vector3) -> void:
+	var sb := StaticBody3D.new()
+	sb.name = "Lichen"
+	sb.collision_layer = Game.LAYER_WORLD
+	sb.add_to_group("climbable")
+	sb.position = base + normal * 0.05
+	sb.basis = Basis(Vector3.UP, atan2(normal.x, normal.z))
+	var cs := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(width, height, 0.06)
+	cs.shape = shape
+	cs.position = Vector3(0, height * 0.5, 0)
+	sb.add_child(cs)
+	var cols := [Color(0.16, 0.2, 0.14), Color(0.2, 0.24, 0.16), Color(0.13, 0.17, 0.15), Color(0.22, 0.22, 0.13)]
+	var mats: Array = []
+	for col in cols:
+		mats.append(LowPoly.mat(col))
+	var glow := LowPoly.mat(SHROOM.darkened(0.5), 0.6)
+	# Strähnen: schmale, nach unten spitz zulaufende Bänder in mehreren Lagen
+	var n := int(width / 0.16)
+	var rows := int(height / 1.4) + 1
+	for r in rows:
+		var top := height - r * 1.35 + _rng.randf_range(-0.1, 0.1)
+		for i in n:
+			var x := -width * 0.5 + (i + 0.5) * width / n + _rng.randf_range(-0.05, 0.05)
+			var length := _rng.randf_range(0.9, 1.7)
+			var t := minf(top, height)
+			if t - length < 0.0:
+				length = t
+			if length < 0.2:
+				continue
+			var strand := LowPoly.mesh_instance(LowPoly.prism(0.05, 0.11, length, 3), mats[_rng.randi() % mats.size()], sb, Vector3(x, t - length * 0.5, 0.02 + 0.025 * (i % 2) + 0.01 * r))
+			strand.rotation = Vector3(_rng.randf_range(-0.08, 0.08), _rng.randf() * TAU, _rng.randf_range(-0.05, 0.05))
+			strand.scale = Vector3(1.0, 1.0, 0.45)
+			if _rng.randf() < 0.06:
+				LowPoly.mesh_instance(LowPoly.crystal(0.08, 0.03), glow, sb, Vector3(x, t - length * 0.8, 0.07))
+	_geo.add_child(sb)
+
+
 ## F4: Test-Explosion ein paar Meter vor dem Spieler (zum Begutachten der Effekte).
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo and (event as InputEventKey).physical_keycode == KEY_F4 and player:
@@ -261,30 +441,44 @@ func _spawn_player(pos: Vector3, yaw: float) -> void:
 # ==================================================================
 
 ## Boden + vier Wände. Öffnungen: Vector2(x-Mitte, Breite) an der Süd- (+Z) bzw. Nordwand (-Z).
-func _room_shell(c: Vector3, size: Vector2, south_open: Array, north_open: Array, room_name: String, cave := false) -> void:
+func _room_shell(c: Vector3, size: Vector2, south_open: Array, north_open: Array, room_name: String, cave := false, west_open: Array = [], east_open: Array = [], with_floor := true) -> void:
 	var hx := size.x * 0.5
 	var hz := size.y * 0.5
-	_slab_floor(Vector2(c.x - hx, c.z - hz), Vector2(c.x + hx, c.z + hz), c.y)
+	if with_floor:
+		_slab_floor(Vector2(c.x - hx, c.z - hz), Vector2(c.x + hx, c.z + hz), c.y)
 	_wall_x(c.z + hz + 1.0, c.x - hx - 2.0, c.x + hx + 2.0, c.y, south_open)
 	_wall_x(c.z - hz - 1.0, c.x - hx - 2.0, c.x + hx + 2.0, c.y, north_open)
 	for side in [-1.0, 1.0]:
 		var x: float = c.x + side * (hx + 1.0)
-		_block(Vector3(x, c.y + WALL_H * 0.5, c.z), Vector3(2.0, WALL_H, size.y), LowPoly.STONE)
+		var opens: Array = west_open if side < 0.0 else east_open
+		_wall_z(x, c.z - hz, c.z + hz, c.y, opens)
 		# Wandpfeiler für die monumentale Silhouette
 		var n := int(size.y / 5.0)
 		for i in n + 1:
 			var z: float = c.z - hz + size.y * float(i) / n
+			if _in_opening(z, opens, 1.3):
+				continue
 			_block(Vector3(x - side * 0.6, c.y + WALL_H * 0.5, z), Vector3(1.4, WALL_H, 1.4), LowPoly.STONE_DARK)
 		for i in 4:
-			_rock(Vector3(x - side * 1.0, c.y + 0.2, c.z + _rng.randf_range(-hz, hz)), _rng.randf_range(0.5, 1.1), true)
+			var rz := c.z + _rng.randf_range(-hz, hz)
+			var rr := _rng.randf_range(0.5, 1.1)
+			if not _in_opening(rz, opens, rr + 0.6):
+				_rock(Vector3(x - side * 1.0, c.y + 0.2, rz), rr, true)
 		if cave:
 			# natürlicher Fels bricht durch das Mauerwerk
 			for i in int(size.y / 3.0):
 				var z := c.z - hz + (i + 0.5) * size.y / int(size.y / 3.0) + _rng.randf_range(-0.8, 0.8)
 				var r := _rng.randf_range(1.2, 2.2)
-				var mi := LowPoly.mesh_instance(LowPoly.rock(r, _rng.randi(), 6, 4, 0.35), LowPoly.mat(_vary(LowPoly.STONE.darkened(0.1))), _geo, Vector3(x - side * 0.2, c.y + _rng.randf_range(0.5, 9.0), z))
-				mi.scale = Vector3(0.6, _rng.randf_range(1.0, 2.0), 1.0)
-				mi.rotation.y = _rng.randf() * TAU
+				var mesh := LowPoly.rock(r, _rng.randi(), 6, 4, 0.35)
+				var col := _vary(LowPoly.STONE.darkened(0.1))
+				var ry := _rng.randf_range(0.5, 9.0)
+				var sy := _rng.randf_range(1.0, 2.0)
+				var rot := _rng.randf() * TAU
+				if _in_opening(z, opens, r + 0.5) and ry < 9.0:
+					continue
+				var mi := LowPoly.mesh_instance(mesh, LowPoly.mat(col), _geo, Vector3(x - side * 0.2, c.y + ry, z))
+				mi.scale = Vector3(0.6, sy, 1.0)
+				mi.rotation.y = rot
 	_room_trigger(c, size, room_name)
 
 
@@ -308,6 +502,40 @@ func _wall_x(z: float, x0: float, x1: float, y: float, openings: Array) -> void:
 	for seg in cuts:
 		var w: float = seg[1] - seg[0]
 		_block(Vector3((seg[0] + seg[1]) * 0.5, y + WALL_H * 0.5, z), Vector3(w, WALL_H, 2.0), LowPoly.STONE)
+
+
+func _in_opening(z: float, opens: Array, margin: float) -> bool:
+	for o in opens:
+		if absf(z - (o as Vector2).x) < (o as Vector2).y * 0.5 + margin:
+			return true
+	return false
+
+
+## Seitenwand entlang Z mit Öffnungen Vector2(z-Mitte, Breite).
+func _wall_z(x: float, z0: float, z1: float, y: float, openings: Array) -> void:
+	var cuts: Array = [[z0, z1]]
+	for o in openings:
+		var oz: float = o.x
+		var hw: float = o.y * 0.5
+		var next: Array = []
+		for seg in cuts:
+			if oz + hw <= seg[0] or oz - hw >= seg[1]:
+				next.append(seg)
+			else:
+				if oz - hw > seg[0]:
+					next.append([seg[0], oz - hw])
+				if oz + hw < seg[1]:
+					next.append([oz + hw, seg[1]])
+		cuts = next
+		var h := 7.0
+		for sd in [-1.0, 1.0]:
+			_block(Vector3(x, y + h * 0.5, oz + sd * (hw + 0.6)), Vector3(2.6, h, 1.2), LowPoly.STONE_DARK)
+		_block(Vector3(x, y + h + 0.7, oz), Vector3(2.6, 1.4, o.y + 2.4), LowPoly.STONE_DARK)
+		_block(Vector3(x, y + h + 0.05, oz), Vector3(2.2, 0.3, o.y + 0.4), LowPoly.STONE_LIGHT)
+		_block(Vector3(x, y + (h + 1.4 + WALL_H) * 0.5, oz), Vector3(2.0, WALL_H - h - 1.4, o.y + 2.4), LowPoly.STONE)
+	for seg in cuts:
+		var w: float = seg[1] - seg[0]
+		_block(Vector3(x, y + WALL_H * 0.5, (seg[0] + seg[1]) * 0.5), Vector3(2.0, WALL_H, w), LowPoly.STONE)
 
 
 func _arch(pos: Vector3, width: float, height: float) -> void:

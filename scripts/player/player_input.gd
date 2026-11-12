@@ -9,7 +9,11 @@ extends Node
 ##   Linksklick       -> normaler Angriff (Kombo)
 ##   Rechtsklick      -> blocken (halten; früh = Parade)
 ##   Mittlere Taste   -> Alternativangriff der Waffe (Schwert: Stich)
-##   Alt halten       -> Cursor kurz freigeben
+##   Shift halten     -> sprinten
+##   Alt links        -> rollen
+##   Y                -> Waffe ziehen/wegstecken
+##   X                -> Licht vorhalten/wegstecken
+##   Esc              -> Pause, gibt den Cursor frei
 ## Fähigkeiten liegen auf 1-9.
 
 # Zustand, den der Controller pro Physik-Tick liest
@@ -27,13 +31,17 @@ var jump_held: bool:
 var block_held: bool:
 	get:
 		return not Game.paused and Input.is_action_pressed("block")
+var sprint_held: bool:
+	get:
+		return not Game.paused and Input.is_action_pressed("sprint")
 var look_delta := Vector2.ZERO  # wird von der Kamera verbraucht
 var zoom_delta := 0.0
 
 # Einmal-Ereignisse; werden vom Controller abgeholt (consume_*)
 var _jump_pressed := false
 var _roll_pressed := false
-var _target_next := false
+var _draw := false
+var _light := false
 var _attack: int = 0  # 1 = normal (LMB), 2 = alternativ (MMB)
 var _ability: int = 0  # 1..9, 0 = keine
 var _alt_free := false
@@ -41,17 +49,6 @@ var _alt_free := false
 
 func _ready() -> void:
 	capture_mouse()
-
-
-func _process(_delta: float) -> void:
-	# Alt halten gibt den Cursor frei (später für Inventar/Menüs)
-	var alt := Input.is_key_pressed(KEY_ALT)
-	if alt != _alt_free:
-		_alt_free = alt
-		if alt:
-			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-		else:
-			capture_mouse()
 
 
 func capture_mouse() -> void:
@@ -90,13 +87,27 @@ func _input(event: InputEvent) -> void:
 		return
 	if event.is_action_pressed("jump"):
 		_jump_pressed = true
-	if event.is_action_pressed("target_next"):
-		_target_next = true
 	for i in range(1, 10):
 		if event.is_action_pressed("ability_%d" % i):
 			_ability = i
 	if event.is_action_pressed("roll"):
 		_roll_pressed = true
+	if event.is_action_pressed("draw_weapon"):
+		_draw = true
+	if event.is_action_pressed("toggle_light"):
+		_light = true
+
+
+func consume_draw() -> bool:
+	var v := _draw
+	_draw = false
+	return v
+
+
+func consume_light() -> bool:
+	var v := _light
+	_light = false
+	return v
 
 
 func consume_attack() -> int:
@@ -117,10 +128,6 @@ func consume_ability() -> int:
 	return v
 
 
-func consume_target_next() -> bool:
-	var v := _target_next
-	_target_next = false
-	return v
 
 
 func consume_roll() -> bool:
