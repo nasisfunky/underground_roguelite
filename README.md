@@ -88,6 +88,37 @@ tools/                    Entwicklerwerkzeuge (Spieltest, Screenshots)
   `Game.light_level_at(pos)` liefert die Helligkeit an einer Stelle (F3 zeigt sie an).
   Darauf bauen später Mechaniken wie „durch Schatten gleiten“ und „zu Licht teleportieren“ auf.
 
+## Arbeitsweisen (aus dem Shooter-Projekt übernommen)
+
+### Level ohne Z-Fighting
+Zwei Flächen, die in einer Ebene liegen, in dieselbe Richtung schauen und sich überlappen,
+flackern beim Bewegen der Kamera durcheinander. Deshalb:
+
+- **Beim Bauen vermeiden:** Was auf einer Fläche liegt, steht mindestens 1 cm davon ab oder steckt
+  sichtbar darin, nie bündig. Abziehbilder (Brandflecken, Ringe) liegen 2–3 cm über dem Boden.
+  Wandteile, die sich treffen, bekommen unterschiedliche Höhen/Tiefen oder überlappen deutlich.
+- **Automatisch reparieren:** Am Ende des Levelaufbaus schiebt `ZFight.fix()` Kisten, deren
+  Flächen bündig aufeinanderliegen, ein paar Zentimeter auseinander (die kräftigere wächst, jede
+  höchstens 4-mal; dünne Teile melden sich im Protokoll, die sollte man beim Bauen absetzen).
+- **Prüfen:** Der automatische Test scannt alle sichtbaren Dreiecke des Levels (`ZFight.scan()`)
+  und schlägt fehl, wenn noch Flächenpaare flackern; er nennt beide Teile und den Ort.
+  Nicht gezählt wird, was niemand sieht: Flächen, die nach unten schauen, Stellen, an denen etwas
+  dagegensteht, und Flächen gleicher Farbe.
+- **Jede Kartenänderung:** Test laufen lassen, Z-Fighting muss 0 sein.
+
+### Feuer (`scripts/fx/flames.gd`)
+`Flames.fire(parent, pos, size)` baut ein Feuer aus Schichten:
+Flammenzungen (aufrechte Quads mit prozeduralen Flammen-Texturen, nur um die Hochachse zur Kamera
+gedreht, additiv, Farbverlauf hell → orange → tiefrot), ein weiß-gelber Kern, aufwirbelnde Glut,
+eine dünne Rauchsäule und ein Licht, das über multiplizierte Sinuswellen flackert.
+
+### Explosionen (`scripts/fx/explosion.gd`)
+`Explosion.spawn(parent, pos, size)`; zeitlich gestaffelt: Blitzkern und Lichtstoß, Feuerball aus
+per Rauschen ausgebeulten Wolken mit Hitze-Rampe (weiß → orange → rot → Rauch, stirbt durch
+Erosion statt Ausblenden), Funkenstreifen entlang der Flugbahn, Felssplitter, Staubring,
+bleibender Brandfleck, danach die Rauchsäule. Farben gestuft, passend zu den harten Facetten.
+**F4** im Spiel zündet eine Test-Explosion vor dem Spieler.
+
 ## Automatischer Spieltest
 
 ```

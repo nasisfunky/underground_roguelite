@@ -27,6 +27,10 @@ func _ready() -> void:
 	_build_room_training()
 	_build_ramp_corridor()
 	_build_room_sealed()
+	# Flächen, die exakt aufeinanderliegen, ein paar Millimeter auseinanderschieben (Z-Fighting)
+	var bumped := ZFight.fix(_geo)
+	if bumped > 0:
+		print("[level] %d Kisten gegen Z-Fighting vergrößert" % bumped)
 	_spawn_player(Vector3(0, 0.1, 9), 0.0)
 
 
@@ -215,6 +219,13 @@ func _build_room_sealed() -> void:
 		_spawn_husk(Transform3D(Basis(Vector3.UP, 0.0), p))
 
 
+## F4: Test-Explosion ein paar Meter vor dem Spieler (zum Begutachten der Effekte).
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo and (event as InputEventKey).physical_keycode == KEY_F4 and player:
+		var at := player.global_position + player.forward() * 4.0
+		Explosion.spawn(self, at, 1.0)
+
+
 func _spawn_husk(xf: Transform3D) -> void:
 	var h := Husk.new()
 	h.transform = xf
@@ -327,6 +338,7 @@ func _room_trigger(c: Vector3, size: Vector2, room_name: String) -> void:
 
 func _block(center: Vector3, size: Vector3, color: Color) -> StaticBody3D:
 	var sb := StaticBody3D.new()
+	sb.name = "Block_%d_%d_%d" % [roundi(center.x), roundi(center.y), roundi(center.z)]
 	sb.collision_layer = Game.LAYER_WORLD
 	sb.collision_mask = 0
 	sb.position = center
@@ -530,29 +542,11 @@ func _fire_bowl(base: Vector3, size: float) -> void:
 	var bowl := LowPoly.mesh_instance(LowPoly.prism(0.32 * size, 0.85 * size, 0.32 * size, 8), LowPoly.mat(LowPoly.OCHRE.darkened(0.35)), _geo, base + Vector3(0, 1.05 * size, 0))
 	bowl.rotation.y = PI / 8
 	var top := base + Vector3(0, 1.2 * size, 0)
-	var flame_mat := LowPoly.mat(FIRE, 5.0)
-	var core_mat := LowPoly.mat(Color(1.0, 0.85, 0.45), 7.0)
-	var flames := Node3D.new()
-	flames.position = top
-	_geo.add_child(flames)
-	for i in 5:
-		var h := _rng.randf_range(0.35, 0.75) * size
-		var mi := LowPoly.mesh_instance(LowPoly.crystal(h, h * 0.25), flame_mat if i > 0 else core_mat, flames, Vector3(_rng.randf_range(-0.2, 0.2), 0, _rng.randf_range(-0.2, 0.2)) * size)
-		mi.rotation = Vector3(_rng.randf_range(-0.3, 0.3), _rng.randf() * TAU, _rng.randf_range(-0.3, 0.3))
-		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		var tw := mi.create_tween().set_loops()
-		var t := _rng.randf_range(0.12, 0.22)
-		tw.tween_property(mi, "scale", Vector3(1.0, _rng.randf_range(1.15, 1.4), 1.0), t)
-		tw.tween_property(mi, "scale", Vector3(1.0, _rng.randf_range(0.7, 0.9), 1.0), t * 1.3)
-	for i in 5:  # Glutstücke
-		LowPoly.mesh_instance(LowPoly.rock(0.07 * size, _rng.randi(), 4, 3, 0.3), LowPoly.mat(FIRE.darkened(0.3), 2.0), flames, Vector3(_rng.randf_range(-0.3, 0.3), -0.04, _rng.randf_range(-0.3, 0.3)) * size)
-	var l := _light(top + Vector3(0, 0.6 * size, 0), FIRE, 2.4 * size, 9.0 * size)
-	l.shadow_enabled = true
-	l.shadow_blur = 2.0
-	l.light_volumetric_fog_energy = 2.0
-	var lt := l.create_tween().set_loops()
-	for k in 6:
-		lt.tween_property(l, "light_energy", 2.4 * size * _rng.randf_range(0.8, 1.12), _rng.randf_range(0.07, 0.16))
+	for i in 5:  # Glutstücke in der Schale
+		var e := LowPoly.mesh_instance(LowPoly.rock(0.08 * size, _rng.randi(), 4, 3, 0.3), LowPoly.mat(FIRE.darkened(0.3), 2.0), _geo, top + Vector3(_rng.randf_range(-0.3, 0.3), -0.02, _rng.randf_range(-0.3, 0.3)) * size)
+		e.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	# Flammen nach dem Shooter-Prinzip: Zungen, Kern, Glut, Rauch, flackerndes Licht
+	Flames.fire(_geo, top, size)
 
 
 ## Erloschene Feuerschale: Asche, kein Licht.

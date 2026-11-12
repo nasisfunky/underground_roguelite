@@ -78,7 +78,7 @@ Mouse  camera        Mouse wheel  zoom        Hold Alt  free cursor
 Left click  attack (click again in rhythm = combo)
 Middle mouse  thrust (sword alt attack, more reach)
 1  Heavy Strike        2  Shield Bash
-F1 Help   F3 Debug   Esc Pause"""
+F1 Help   F3 Debug   F4 Test explosion   Esc Pause"""
 	root.add_child(_help)
 	_mode = _label(13, Color(1.0, 0.85, 0.5, 0.9))
 	_mode.position = Vector2(18, 192)

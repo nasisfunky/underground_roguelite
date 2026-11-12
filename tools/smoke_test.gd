@@ -179,6 +179,14 @@ func _ready() -> void:
 		Input.action_release("move_forward")
 		_check(seg[0], p.global_position.z < seg[2], "z %.1f" % p.global_position.z)
 
+	# --- Kein Z-Fighting im Level (übereinanderliegende Flächen flackern) ---
+	var t0 := Time.get_ticks_msec()
+	var zf := ZFight.scan(level.get_node("Geometry"))
+	zf.sort_custom(func(x, y): return x.area > y.area)
+	for i in mini(zf.size(), 25):
+		print("      z-fight: %s  <->  %s  %.3f m²  bei %s" % [zf[i].a, zf[i].b, zf[i].area, (zf[i].at as Vector3).snapped(Vector3.ONE * 0.1)])
+	_check("Kein Z-Fighting im Level", zf.is_empty(), "%d Paare, Scan %d ms" % [zf.size(), Time.get_ticks_msec() - t0])
+
 	print("\n=== SMOKE TEST: %s (%d Fehler) ===" % ["OK" if fails == 0 else "FEHLER", fails])
 	get_tree().quit(fails)
 
