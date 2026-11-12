@@ -18,7 +18,7 @@ signal stamina_changed(current: float, maximum: float)
 signal died
 signal ability_used(slot: int)
 
-enum State { MOVE, ROLL, ABILITY, STAGGER, DEAD, CLIMB, LEDGE_UP, SWIM }
+enum State { MOVE, ROLL, ABILITY, STAGGER, DEAD, CLIMB, LEDGE_UP, SWIM, KNOCKDOWN }
 
 @export var peer_id := 1
 @export var is_local := true
@@ -114,6 +114,9 @@ var weapon: WeaponDef = WeaponDef.make(&"sword")
 var offhand_choice: StringName = &"shield"  ## &"shield", &"dagger" oder &""
 ## Kombo-Kette: Linksklick spielt die Bausteine der Reihe nach ab (leere Plätze werden übersprungen)
 const CHAIN_SLOTS := 5
+const KNOCKDOWN_AT := 1.0  ## Treffer, die mindestens so lange (s) unterbrechen würden, werfen um (Finisher, Heavy Strike)
+const KNOCKDOWN_TIME := 2.1  ## umgeworfen: fallen, liegen, aufstehen
+const KNOCKDOWN_GETUP := 1.15  ## ab hier steht man auf (vorher unverwundbar am Boden); Rolle ab hier möglich
 var combo_chain: Array[StringName] = []
 var combo_pool: Array[StringName] = []  ## gefundene Bausteine (Prototyp: alle)
 var chain_reset := 1.4  ## s ohne Angriff, bis die Kette wieder vorn beginnt
@@ -284,7 +287,22 @@ func forward() -> Vector3:
 
 
 func is_invulnerable() -> bool:
-	return state == State.ROLL and state_t < roll_iframes
+	return (state == State.ROLL and state_t < roll_iframes) or (state == State.KNOCKDOWN and state_t < KNOCKDOWN_GETUP)
+
+
+## Laufenden Schlag abbrechen (Rolle, Block, Sprung)? Wuchtige Schläge sind ab dem Ausholen festgelegt.
+func can_cancel_swing() -> bool:
+	if _swing_t < 0.0:
+		return true
+	var t := _swing_t / swing_duration
+	if _module:
+		return not _module.committed(self, t)
+	# Stich (mittlere Maustaste) mit der Zweihandaxt ist ebenfalls wuchtig
+	return not (weapon.is_heavy() and t >= swing_hit_at - ComboModule.COMMIT_LEAD and t <= swing_hit_at + 0.08)
+
+
+func swing_committed() -> bool:
+	return not can_cancel_swing()
 
 
 ## Was die linke Hand halten soll: Licht hat Vorrang, sonst Schild bei gezogener Waffe.
@@ -400,6 +418,8 @@ func _physics_process(delta: float) -> void:
 			_state_ability(delta)
 		State.STAGGER:
 			_state_stagger(delta)
+		State.KNOCKDOWN:
+			_state_knockdown(delta)
 		State.DEAD:
 			_state_dead(delta)
 		State.CLIMB:
@@ -549,7 +569,9 @@ func _state_move(delta: float) -> void:
 	var dir := _desired_direction(delta)
 
 	# Blocken (halten): zieht Waffe und Schild; geblockt wird erst, wenn sie in der Hand sind
-	var want_block: bool = input != null and input.block_held and is_on_floor() and _swing_t < 0.0
+	var want_block: bool = input != null and input.block_held and is_on_floor() and can_cancel_swing()
+	if want_block and _swing_t >= 0.0:
+		_cancel_swing()  # Schlag zugunsten der Deckung abbrechen
 	if want_block:
 		_ensure_drawn()
 		var shield_coming: bool = body.has_shield and body.want_off == &"shield"
@@ -596,7 +618,10 @@ func _state_move(delta: float) -> void:
 		return
 
 	# Aktionen
-	if _buffer == &"jump" and _coyote > 0.0:
+	var free := can_cancel_swing()  # wuchtiger Schlag festgelegt: Rolle/Sprung bleiben vorgemerkt
+	if not free and _buffer in [&"jump", &"roll", &"ability"]:
+		_buffer_t = maxf(_buffer_t, 0.05)
+	elif _buffer == &"jump" and _coyote > 0.0:
 		_consume_buffer(&"jump")
 		_do_jump()
 	elif _buffer == &"roll" and stamina > 0.0 and (is_on_floor() or _coyote > 0.0):
@@ -1165,6 +1190,7 @@ func _update_swing(delta: float) -> void:
 			info.poise_damage = 14.0
 			info.hitstop = 0.08
 			info.shake = 0.16
+			info.stagger = 0.5 * weapon.eff_stagger(body.off_item)
 			hit_cone(melee_range + thrust_reach_bonus + weapon.eff_reach(body.off_item), thrust_arc_deg, info)
 		else:
 			info.amount = swing_damage * randf_range(0.9, 1.1)
@@ -1172,6 +1198,7 @@ func _update_swing(delta: float) -> void:
 			info.poise_damage = 8.0
 			info.hitstop = 0.06
 			info.shake = 0.12
+			info.stagger = 0.35 * weapon.eff_stagger(body.off_item)
 			hit_cone(melee_range + 0.3, swing_arc_deg, info)
 	if t >= 1.0:
 		_swing_t = -1.0
@@ -1278,6 +1305,11 @@ func module_info(m: ComboModule) -> DamageInfo:
 	info.poise_damage = m.poise * weapon.poise
 	info.hitstop = m.hitstop
 	info.shake = m.shake * (1.4 if weapon.grip == &"2h" else 1.0)
+	# Unterbrechung: je wuchtiger Baustein und Waffe, desto länger (Dolch kurz, Zweihandaxt lang)
+	info.stagger = (0.15 + clampf(m.poise, 0.0, 30.0) * 0.025) * weapon.eff_stagger(body.off_item)
+	info.knockdown = m.finisher and info.stagger >= KNOCKDOWN_AT
+	if info.knockdown:
+		info.knockback = maxf(info.knockback, 6.0)
 	return info
 
 
@@ -1372,13 +1404,14 @@ func receive_hit(info: DamageInfo) -> int:
 		_spend_stamina(stamina)
 		info.amount *= 0.5
 		FX.number(self, global_position + Vector3.UP * 2.2, "Guard Broken", Color(1.0, 0.5, 0.3))
-		_take_damage(info, from_dir, 0.8)
+		_take_damage(info, from_dir, maxf(info.stagger, 0.8))
 		return DamageInfo.Result.GUARD_BREAK
-	_take_damage(info, from_dir, 0.38)
+	# Unterbrechung je nach Waffe/Angriff des Gegners; besonders schwere Treffer werfen um
+	_take_damage(info, from_dir, info.stagger, info.knockdown or info.stagger >= KNOCKDOWN_AT)
 	return DamageInfo.Result.HIT
 
 
-func _take_damage(info: DamageInfo, from_dir: Vector3, stagger_len: float) -> void:
+func _take_damage(info: DamageInfo, from_dir: Vector3, stagger_len: float, knockdown := false) -> void:
 	if state in [State.CLIMB, State.SWIM, State.LEDGE_UP] and health - info.amount > 0.0:
 		# hängt/schwimmt: Schaden ja, aber kein Taumeln (sonst fällt man durch die Kante)
 		health = maxf(health - info.amount, 0.0)
@@ -1403,7 +1436,20 @@ func _take_damage(info: DamageInfo, from_dir: Vector3, stagger_len: float) -> vo
 		_dead_t = 0.0
 		died.emit()
 		return
-	_stagger_len = stagger_len
+	if knockdown:
+		# nach hinten geworfen: kurz abheben, dann liegen, dann aufstehen
+		var push := maxf(info.knockback, 6.0)
+		velocity.x = -from_dir.x * push
+		velocity.z = -from_dir.z * push
+		velocity.y = 3.2
+		if from_dir != Vector3.ZERO:
+			facing_yaw = atan2(-from_dir.x, -from_dir.z)  # dem Angreifer zugewandt, fällt also rückwärts
+		if cam:
+			cam.add_trauma(0.3)
+		FX.number(self, global_position + Vector3.UP * 2.3, "Knocked down", Color(1.0, 0.55, 0.3))
+		_set_state(State.KNOCKDOWN)
+		return
+	_stagger_len = maxf(stagger_len, 0.12)
 	_set_state(State.STAGGER)
 
 
@@ -1411,6 +1457,18 @@ func _state_stagger(delta: float) -> void:
 	state_t += delta
 	_horizontal_move(Vector3.ZERO, delta * 0.4)
 	if state_t >= _stagger_len:
+		_set_state(State.MOVE)
+
+
+func _state_knockdown(delta: float) -> void:
+	state_t += delta
+	_horizontal_move(Vector3.ZERO, delta * (0.5 if not is_on_floor() else 2.2))
+	# beim Aufstehen darf man sich herausrollen
+	if state_t >= KNOCKDOWN_GETUP + 0.25 and _buffer == &"roll" and stamina > 0.0 and is_on_floor():
+		_consume_buffer(&"roll")
+		_start_roll(_desired_direction(delta, false))
+		return
+	if state_t >= KNOCKDOWN_TIME:
 		_set_state(State.MOVE)
 
 
@@ -1507,6 +1565,11 @@ func _update_body(delta: float) -> void:
 		State.STAGGER:
 			body.action = &"stagger"
 			body.action_t = state_t / _stagger_len
+		State.KNOCKDOWN:
+			body.action = &"knockdown"
+			body.action_t = state_t / KNOCKDOWN_TIME
+			body.knockdown_getup = KNOCKDOWN_GETUP / KNOCKDOWN_TIME
+			body.speed = 0.0
 		State.DEAD:
 			body.action = &"dead"
 			body.action_t = state_t

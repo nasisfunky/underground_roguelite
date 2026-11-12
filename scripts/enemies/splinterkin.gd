@@ -9,12 +9,13 @@ extends Enemy
 
 signal respawn_requested(kin: Splinterkin)
 
-enum S { LURK, HUNT, WINDUP, LEAP, RECOVER, STAGGER, DEAD }
+enum S { LURK, HUNT, WINDUP, LEAP, RECOVER, STAGGER, DEAD, KNOCKDOWN }
 
 const VIOLET := Color(0.72, 0.52, 1.0)
 const LEG_UP := 0.3
 const LEG_LO := 0.36
 const BODY_Y := 0.42
+const KNOCKDOWN_TIME := 1.6
 const FOOT_CHANNELS := ["foot_fl", "foot_fr", "foot_bl", "foot_br"]
 ## Ruhepunkte der Füße (Körper-Raum): vorn links, vorn rechts, hinten links, hinten rechts
 const RESTS := [Vector3(-0.36, 0, -0.38), Vector3(0.36, 0, -0.38), Vector3(-0.34, 0, 0.36), Vector3(0.34, 0, 0.36)]
@@ -72,6 +73,7 @@ func _ready() -> void:
 	target_height = 0.95
 	radius = 0.34
 	body_height = 0.8
+	stagger_resist = 1.25  # leicht: Treffer werfen es länger aus dem Tritt
 	super._ready()
 	_rng.randomize()
 	CreatureAnim.ensure("splinterkin", Splinterkin.default_pose)
@@ -212,6 +214,7 @@ func _physics_process(delta: float) -> void:
 				info.knockback = 3.5
 				info.hitstop = 0.06
 				info.shake = 0.25
+				info.stagger = 0.3  # leichter Sprungbiss: kurze Unterbrechung
 				_hitbox.activate(info)
 		S.LEAP:
 			desired = _leap_dir * _leap_v * (1.0 - 0.4 * state_t / leap_time)
@@ -224,6 +227,11 @@ func _physics_process(delta: float) -> void:
 			if state_t >= recover_time:
 				_release_token()
 				_cooldown = _rng.randf_range(1.6, 3.2)
+				_set_state(S.HUNT)
+		S.KNOCKDOWN:
+			if state_t >= KNOCKDOWN_TIME:
+				_release_token()
+				_cooldown = _rng.randf_range(0.6, 1.2)
 				_set_state(S.HUNT)
 		S.STAGGER:
 			if state_t >= _stagger_len:
@@ -304,6 +312,7 @@ func anim_action() -> String:
 		S.RECOVER: return "recover"
 		S.STAGGER: return "stagger"
 		S.DEAD: return "death"
+		S.KNOCKDOWN: return "knockdown"
 	return "move"
 
 
@@ -314,6 +323,7 @@ func anim_time() -> float:
 		S.RECOVER: return state_t / recover_time
 		S.STAGGER: return state_t / _stagger_len
 		S.DEAD: return state_t / DEATH_TIME
+		S.KNOCKDOWN: return state_t / KNOCKDOWN_TIME
 	return _gait
 
 
@@ -446,6 +456,13 @@ static func default_pose(action: String, k: float) -> Dictionary:
 			var env: float = ss.call(k / 0.15) * (1.0 - ss.call((k - 0.75) / 0.25))
 			var c := 0.3 * env
 			return _rest_pose(BODY_Y - 0.18 * c, 0.0, sin(k * 0.6 * 40.0) * 0.12 * (1.0 - k), c, 0.0)
+		"knockdown":
+			# hochgeschleudert, landet auf dem Rücken (Bauch nach oben), zappelt, rappelt sich auf
+			var hop := sin(clampf(k / 0.3, 0.0, 1.0) * PI) * 0.8
+			var c := 0.8 * (1.0 - ss.call((k - 0.65) / 0.35))
+			var tip: float = ss.call(k / 0.25) * (1.0 - ss.call((k - 0.7) / 0.25))
+			return _rest_pose(BODY_Y - 0.18 * c + 0.32 * hop, -0.25 * hop + 1.9 * tip, sin(k * 1.6 * 30.0) * 0.1 * tip, c,
+				0.15 * clampf((hop - 0.1) / 0.5, 0.0, 1.0) + 0.12 * tip)
 		"death":
 			var c := 1.0 - exp(-12.0 * k)
 			return _rest_pose(BODY_Y - 0.18 * c, 0.0, 0.0, c, 0.15 * (1.0 - exp(-10.0 * k)))
@@ -483,18 +500,25 @@ func _seg_basis(along: Vector3) -> Basis:
 # Treffer
 # ------------------------------------------------------------------
 
-func _on_hit(_info: DamageInfo, _dir: Vector3) -> void:
+func _on_hit(info: DamageInfo, dir: Vector3) -> void:
 	_flash_t = 0.08
 	for m in _meshes:
 		m.material_overlay = _flash_mat
 	if state == S.LURK:
 		_player = Game.nearest_player(global_position, 40.0)
 		_set_state(S.HUNT)
-	if poise <= 0.0 and state != S.DEAD and not (state == S.STAGGER and _stagger_len - state_t > 0.6):
+	if state in [S.DEAD, S.KNOCKDOWN]:
+		return
+	var r := hit_reaction(info, state in [S.WINDUP, S.LEAP])
+	if r < 0.0:
 		_hitbox.deactivate()
 		_eye_mat.emission_energy_multiplier = 3.0
-		_stagger_len = 0.6
-		poise = max_poise
+		_knock = dir * maxf(info.knockback, 5.0)
+		_set_state(S.KNOCKDOWN)
+	elif r > 0.0 and not (state == S.STAGGER and _stagger_len - state_t > r):
+		_hitbox.deactivate()
+		_eye_mat.emission_energy_multiplier = 3.0
+		_stagger_len = r
 		_set_state(S.STAGGER)
 
 

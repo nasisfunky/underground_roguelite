@@ -13,15 +13,15 @@ const CLIPS := ["swing_0", "swing_1", "heavy", "thrust", "shove", "sweep", "hook
 ## Animationen der Gegner mit Shade-Körper. Angriffe: Ausholen bis trail.x, Schlag (Schaden) bis trail.y, dann Erholen;
 ## ohne eigene Datei eine Kopie der Heavy-Animation (so sahen sie vorher aus). Taumeln/Tod: eingebaute Startfassung
 ## (vorher fest im Code von ShadowBody). Der Tod hält seine letzte Haltung ("hold_end").
-const ENEMY_CLIPS := ["hollowed_strike", "hollowed_stagger", "hollowed_death", "hollow_one_strike"]
+const ENEMY_CLIPS := ["hollowed_strike", "hollowed_stagger", "hollowed_knockdown", "hollowed_death", "hollow_one_strike"]
 const ENEMY_LABELS := {"hollowed_strike": "Enemy: Hollowed strike", "hollowed_stagger": "Enemy: Hollowed staggered",
-	"hollowed_death": "Enemy: Hollowed death", "hollow_one_strike": "Enemy: Hollow One strike"}
+	"hollowed_knockdown": "Enemy: Hollowed knocked down", "hollowed_death": "Enemy: Hollowed death", "hollow_one_strike": "Enemy: Hollow One strike"}
 ## Welcher Gegner wie aussieht (Figur in der Werkstatt)
-const ENEMY_LOOKS := {"hollowed_strike": "hollowed", "hollowed_stagger": "hollowed", "hollowed_death": "hollowed", "hollow_one_strike": "hollow_one"}
+const ENEMY_LOOKS := {"hollowed_strike": "hollowed", "hollowed_stagger": "hollowed", "hollowed_knockdown": "hollowed", "hollowed_death": "hollowed", "hollow_one_strike": "hollow_one"}
 const ALL_CLIPS := CLIPS + ENEMY_CLIPS
 ## Zusätzliche Körpersteuerung je Keyframe (Werkstatt). Werte addieren sich zur prozeduralen Pose (0 = unverändert).
 ## Winkel in Radiant, step in Metern. In der Datei stehen nur Werte ungleich 0.
-## fall/sink: ganze Figur nach vorn (+) / hinten kippen (rad) und absenken (m), z. B. beim Tod.
+## fall/sink: ganze Figur nach hinten (+) / vorn (-) kippen (rad) und absenken (m), z. B. Tod, Umwerfen.
 const BODY_FIELDS := ["bank", "hips_turn", "head_yaw", "head_pitch", "step",
 	"leg_l_swing", "leg_l_spread", "leg_l_knee", "leg_r_swing", "leg_r_spread", "leg_r_knee", "elbow_r", "elbow_l", "fall", "sink"]
 ## Waffen, für die es eigene Versionen eines Clips geben kann (Datei <clip>@<waffe>.json)
@@ -333,8 +333,24 @@ static func builtin(clip_name: String) -> Dictionary:
 				var w := sin(minf(tt * 1.3, 1.0) * PI)
 				rows.append([tt, _scaled(Vector3(0.42, -0.1, 0.12)), [0.3, 0.4, 0.6], [0, 1, 0], 0.25 * w, 0.45 * w, 0.0,
 					_scaled(Vector3(-0.42, -0.05, 0.05)), [-0.35, 0.0, -1.0], {"leg_l_knee": 0.2 * w, "leg_r_knee": 0.15 * w}])
+		"hollowed_knockdown":
+			# Umgeworfen: schnell auf den Rücken, liegen, über die Knie aufstehen (vorher fest im Code, 2,3 s)
+			d.label = ENEMY_LABELS[clip_name]
+			d.duration = 2.3
+			d.hit = 0.16
+			d.trail = [1.1, 1.2]
+			rows = []
+			var getup := 1.3 / 2.3
+			for tt in [0.05, 0.1, 0.16, 0.35, getup, 0.64, 0.72, 0.8, 0.88, 0.95]:
+				var fall := clampf(tt / 0.16, 0.0, 1.0)
+				var up := clampf((tt - getup) / (1.0 - getup), 0.0, 1.0)
+				var w := (1.0 - pow(1.0 - fall, 3.0)) * (1.0 - smoothstep(0.0, 0.75, up))
+				var c := sin(clampf(up * 1.15, 0.0, 1.0) * PI)
+				rows.append([tt, _scaled(Vector3(0.45, -0.3 + 0.2 * c, 0.1)), [0.2, -0.6, -0.75], [0, 1, 0], 0.0, -0.5 * c, 0.22 * c,
+					_scaled(Vector3(-0.4, -0.3 + 0.15 * c, 0.0)), [-0.35, -0.3, -1.0],
+					{"leg_l_knee": 0.3 * w + 1.0 * c, "leg_r_knee": 0.1 * w + 0.7 * c, "fall": 1.45 * w, "sink": 0.3 * w + 0.25 * sin(up * PI)}])
 		"hollowed_death":
-			# Tod: knickt ein und fällt nach vorn, bleibt liegen (hold_end); danach versinkt er (Code)
+			# Tod: knickt ein und fällt auf den Rücken, bleibt liegen (hold_end); danach versinkt er (Code)
 			d.label = ENEMY_LABELS[clip_name]
 			d.duration = 1.2
 			d.hit = 0.375

@@ -179,6 +179,7 @@ var _custom_weapon: Node3D
 var _two_w := 0.0  ## 0..1, Gewicht des beidhändigen Griffs
 ## Animationsclip für die Aktion "swing" (leer = AnimLibrary.CLIPS[swing_index]); z. B. "thrust@spear"
 var swing_clip := ""
+var knockdown_getup := 0.55  ## Aktion "knockdown": ab hier (normiert) steht die Figur wieder auf
 ## Werkstatt: Haltung erzwingen (leer = normal). "idle", "walk", "guard" … siehe PoseLibrary
 var _body_ofs: Array = []  ## Körper-Zusätze des laufenden Clips (AnimLibrary.BODY_FIELDS)
 
@@ -1072,6 +1073,22 @@ func tick(delta: float) -> void:
 			grip = Vector3(0.42, -0.1, 0.12)
 			sh_pos = Vector3(-0.42, -0.05, 0.05)
 			hand_f = 6.0
+		&"knockdown":
+			# nach hinten umgeworfen: fallen (schnell), liegen, über die Knie aufstehen
+			var fall := clampf(action_t / 0.16, 0.0, 1.0)
+			var up := clampf((action_t - knockdown_getup) / (1.0 - knockdown_getup), 0.0, 1.0)
+			var w := (1.0 - pow(1.0 - fall, 3.0)) * (1.0 - smoothstep(0.0, 0.75, up))
+			rig_x = 1.45 * w
+			rig_direct = true
+			rig_y = RIG_Y - 0.3 * w - 0.25 * sin(up * PI)
+			var crouch := sin(clampf(up * 1.15, 0.0, 1.0) * PI)
+			lean -= 0.5 * crouch
+			hips_drop = 0.22 * crouch
+			kl = -0.6 * w - 1.1 * crouch
+			kr = -0.3 * w - 0.8 * crouch
+			grip = Vector3(0.45, -0.3 + 0.2 * crouch, 0.1)
+			sh_pos = Vector3(-0.4, -0.3 + 0.15 * crouch, 0.0)
+			hand_f = 6.0
 		&"dead":
 			var w := clampf(action_t * 2.2, 0.0, 1.0)
 			rig_x = 1.45 * (1.0 - pow(1.0 - w, 3.0))
@@ -1252,7 +1269,7 @@ func tick(delta: float) -> void:
 	elif offhand:
 		# Laternenstab: vor dem Körper gehalten, Stab fast senkrecht; Rolle/Stoß/Block nutzen die Schild-Pose
 		var hold_t := OFFHAND_HOLD + Vector3(0, sin(_phase * 2.0) * 0.012 * wm, sin(_phase + PI) * 0.04 * minf(s, 1.0) * wm)
-		if action in [&"roll", &"bash", &"stagger", &"dead"] or block_amount > 0.05:
+		if action in [&"roll", &"bash", &"stagger", &"knockdown", &"dead"] or block_amount > 0.05:
 			hold_t = sp
 		var hold: Vector3 = _u(_sp_off, delta, hold_t)
 		var up_t := Vector3(0.0, 1.0, -0.08) if action != &"roll" else Vector3(-0.7, 0.5, 0.1)

@@ -17,6 +17,8 @@ var reach := 0.0  ## zusätzliche Reichweite (m)
 var arc := 1.0  ## Faktor auf den Trefferbogen
 var poise := 1.0
 var cost := 1.0
+var stagger := 1.0  ## wie lange Treffer unterbrechen (Dolch kurz, Zweihandaxt lang)
+var two_hand_stagger := 1.3
 var own_modules: Array[StringName] = []  ## Bausteine, die nur mit dieser Waffe gehen
 var culture := false  ## true = Modell der Kultur (Säbel/Axt/Stab aus dem Outfit)
 
@@ -43,6 +45,7 @@ static func make(weapon_id: StringName) -> WeaponDef:
 			w.reach = 0.9
 			w.arc = 0.55
 			w.poise = 0.9
+			w.stagger = 1.0
 			w.two_hand_damage = 1.25
 			w.two_hand_reach = 1.15
 			w.two_hand_speed = 0.95
@@ -58,6 +61,7 @@ static func make(weapon_id: StringName) -> WeaponDef:
 			w.reach = 0.35
 			w.arc = 1.1
 			w.poise = 2.0
+			w.stagger = 1.9
 			w.cost = 1.35
 			w.own_modules = [&"cleave", &"beard_hook"]
 		&"dagger":
@@ -68,6 +72,7 @@ static func make(weapon_id: StringName) -> WeaponDef:
 			w.reach = -0.35
 			w.arc = 0.85
 			w.poise = 0.6
+			w.stagger = 0.45
 			w.cost = 0.7
 			w.own_modules = [&"flurry", &"slip"]
 		_:
@@ -90,6 +95,15 @@ func eff_damage(off_item: StringName) -> float:
 
 func eff_reach(off_item: StringName) -> float:
 	return reach * (two_hand_reach if grip == &"versatile" and two_handed(off_item) else 1.0)
+
+
+func eff_stagger(off_item: StringName) -> float:
+	return stagger * (two_hand_stagger if grip == &"versatile" and two_handed(off_item) else 1.0)
+
+
+## Wuchtige Waffe: einmal ausgeholt, lässt sich der Schlag nicht mehr abbrechen.
+func is_heavy() -> bool:
+	return grip == &"2h"
 
 
 func eff_speed(off_item: StringName) -> float:

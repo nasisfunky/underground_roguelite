@@ -33,6 +33,7 @@ const CREATURES := {
 			["recover", "Landing / recover", false, 0.85, "Defenceless after landing (0.85 s)."],
 			["stagger", "Staggered", false, 0.6, "After a heavy hit or parry; stretched to the stagger length (0.55-1.4 s)."],
 			["death", "Death", false, 1.0, "Collapses, then shrinks away."],
+			["knockdown", "Knocked down", false, 1.6, "Thrown onto its back by a very heavy hit, then scrambles up."],
 		],
 		"channels": [
 			["torso", "Body (core + crown)", "rot"],

@@ -38,6 +38,15 @@ var _target: Enemy
 
 
 static var _gold := Color(1.0, 0.82, 0.42)
+const COMMIT_LEAD := 0.2  ## so viel (normiert) vor dem ersten Treffer ist ein wuchtiger Schlag festgelegt
+
+
+## Ab der Ausholbewegung bis kurz nach dem letzten Treffer festgelegt? (Abbrechen per Rolle/Block nicht mehr möglich)
+## Gilt für wuchtige Schläge: Finisher und alles mit der Zweihandaxt.
+func committed(p: Player, t: float) -> bool:
+	if not (finisher or p.weapon.is_heavy()):
+		return false
+	return t >= hits[0] - COMMIT_LEAD and t <= hits[hits.size() - 1] + 0.08
 
 
 ## Vor dem Start: Dauer/Trefferzeit aus dem Clip, skaliert mit dem Tempo der Waffe.

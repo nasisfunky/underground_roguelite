@@ -58,7 +58,7 @@ const ENEMY_CHOICES := [["hollowed", "Hollowed"], ["hollow_one", "Hollow One"], 
 const ENEMY_CAM := {"splinterkin": [Vector3(0, 0.35, -0.2), 2.4], "grimhauler": [Vector3(0, 1.45, -0.3), 6.8],
 	"willamber": [Vector3(0, 0.55, -0.2), 2.8], "hollow_one": [Vector3(0, 1.2, -0.1), 3.8]}
 ## Shade-Körper-Animationen der Gegner (Clips im Animationsmodus): [clip, Knopf]
-const ENEMY_CLIP_BTNS := {"hollowed": [["hollowed_strike", "Edit its strike"], ["hollowed_stagger", "Edit staggered"], ["hollowed_death", "Edit death"]],
+const ENEMY_CLIP_BTNS := {"hollowed": [["hollowed_strike", "Edit its strike"], ["hollowed_stagger", "Edit staggered"], ["hollowed_knockdown", "Edit knocked down"], ["hollowed_death", "Edit death"]],
 	"hollow_one": [["hollow_one_strike", "Edit its arms (strike)"]]}
 
 var dirty := {}  ## Datei -> true (ungespeichert)
@@ -603,7 +603,7 @@ func _build_clip_panel(root: Control) -> void:
 	_param(bod, "b.elbow_r", "Right elbow", -90, 90, 0.5, DEG, "Swing the right elbow around the arm (+ = out/up)")
 	_param(bod, "b.elbow_l", "Left elbow", -90, 90, 0.5, DEG, "Swing the left elbow around the arm (+ = out/up)")
 	_heading(bod, "Whole figure")
-	_param(bod, "b.fall", "Fall over", -100, 100, 0.5, DEG, "+ = tip the whole figure forward, - = backward (e.g. death)")
+	_param(bod, "b.fall", "Fall over", -100, 100, 0.5, DEG, "+ = tip the whole figure backward, - = forward (death, knocked down)")
 	_param(bod, "b.sink", "Sink (m)", -0.2, 0.8, 0.005, 1.0, "Lower the whole figure (lying on the ground)")
 
 	var legs := _scroll(tabs)
@@ -1417,7 +1417,7 @@ func _set_enemy(id: String) -> void:
 	for b in ENEMY_CLIP_BTNS.get(id, []):
 		var cn: String = b[0]
 		_btn(_enemy_redirect_btns, b[1] + " in Animations", func(): _open_enemy_clip(cn))
-	_enemy_redirect_note.text = ("This enemy has a Shade body: its strike, stagger and death are normal animations with all hand, body and leg controls, "
+	_enemy_redirect_note.text = ("This enemy has a Shade body: its strike, stagger, knockdown and death are normal animations with all hand, body and leg controls, "
 		+ "edited in the Animations mode (the figure there then looks like this enemy). Walking and standing are shared with the player for now.") if shade else (
 		"Its arms during the strike are a normal animation (Animations mode). Here: how it hovers and glides.")
 	if _enemy:
