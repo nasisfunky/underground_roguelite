@@ -8,6 +8,7 @@ extends Node3D
 const TAIL_RINGS := [[0.03, 0.1, 0.085], [-0.08, 0.108, 0.09], [-0.25, 0.092, 0.076], [-0.45, 0.066, 0.055],
 	[-0.65, 0.04, 0.034], [-0.85, 0.016, 0.014], [-0.95, 0.0, 0.0]]
 const ATTACK_CYCLE := 3.4
+const CLIP := "hollow_one_strike"  ## eigene Angriffsanimation (Animationswerkstatt)
 
 var outfit := ""  ## leer: zufällige Kultur
 var attacking := false
@@ -64,18 +65,17 @@ func tick(delta: float) -> void:
 		y = 0.42 + 0.14 * k_w * (1.0 - k_d) - 0.1 * k_d * (1.0 - k_b)
 		bank *= k_b
 		flare = k_w * (1.0 - k_b)
+		var tr: Vector2 = AnimLibrary.clip(CLIP).trail  # Ausholen | Schlag | Erholen (Animationswerkstatt)
+		body.swing_clip = CLIP
 		if ta < 0.8:
 			body.action = &"swing"
-			body.swing_index = 2
-			body.action_t = 0.36 * ta / 0.8
+			body.action_t = tr.x * ta / 0.8
 		elif ta < 1.08:
 			body.action = &"swing"
-			body.swing_index = 2
-			body.action_t = 0.36 + 0.26 * (ta - 0.8) / 0.28
+			body.action_t = tr.x + (tr.y - tr.x) * (ta - 0.8) / 0.28
 		elif ta < 2.4:
 			body.action = &"swing"
-			body.swing_index = 2
-			body.action_t = 0.62 + 0.38 * (ta - 1.08) / 1.32
+			body.action_t = tr.y + (1.0 - tr.y) * (ta - 1.08) / 1.32
 	body.position = Vector3(x, y, z)
 	body.rotation = Vector3(0, 0, bank)
 	body.combat = 1.0 if attacking else 0.25

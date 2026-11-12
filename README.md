@@ -250,6 +250,15 @@ Die Kulturklingen haben je Kultur eine eigene Datei (kiln/rimefall/glowmire).
 **Stowed gear** – für alle Waffen gleich (`data/poses/gear.json`): Schild auf dem Rücken, Zweithand-Dolch am Gürtel,
 Laterne am Gürtel und vorgehalten.
 
+**Enemies** – Gegneranimationen.
+- Hollowed und Hollow One haben Shade-Körper: ihr Angriff ist eine normale Animation
+  ("Enemy: Hollowed strike" / "Enemy: Hollow One strike", im Animationsmodus mit allen Reitern; die Figur sieht dort
+  wie der Gegner aus). Im Reiter Timing ist das Trail-Fenster die Schlagphase (davor Ausholen, danach Erholen).
+- Splinterkin, Grimhauler und Willambers bewegen sich prozedural (Füße suchen den Boden, die Axt folgt der Hand).
+  Je Aktion (z. B. Overhead slam, Scuttling, Strike) setzt man Keys mit Gelenkdrehungen (Grad) und Verschiebungen
+  von Körper/Füßen (m) als Zusatz obendrauf (`data/enemy_anims/<gegner>.json`). Schleifen (Gehen, Lauern) laufen rund,
+  alle anderen beginnen und enden ohne Zusatz.
+
 **Save** (Strg+S) schreibt die Datei des aktuellen Modus, im Spiel sofort aktiv. **Revert** lädt die Datei neu,
 Strg+Z macht rückgängig. Fehlt eine Datei, gelten die eingebauten Vorgaben.
 Kamera: RMB ziehen = drehen, MMB = verschieben, Mausrad = Zoom, Front/Side/3/4/Back/Top = feste Ansichten.

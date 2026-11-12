@@ -83,6 +83,16 @@ func tick(delta: float) -> void:
 	_pose(delta)
 
 
+## Animationswerkstatt: Haltung der Aktion ("walk"/"attack") zur normierten Zeit k zeigen.
+func preview(action: String, k: float, delta: float) -> void:
+	attacking = action == "attack"
+	_t0 = 0.0
+	t = k * (CYCLE if attacking else STEP_CYCLE)
+	if attacking and k * CYCLE < 1.74:
+		_impacted = false
+	_pose(delta)
+
+
 func _process(_delta: float) -> void:
 	var o := get_global_transform_interpolated().origin
 	for m: ShaderMaterial in _m.hem_mats:
@@ -312,6 +322,14 @@ func _pose(dt: float) -> void:
 	WillfaultModel.rot(j["foreR"], (0.3 * (1.0 - k_s * 0.7) * (1.0 - k_r) + 0.15 * k_r) if attacking else 0.15, 0.0, 0.0)
 	WillfaultModel.rot(j["upL"], arm_l + shake, 0.0, z_l)
 	WillfaultModel.rot(j["foreL"], fore_l, 0.0, 0.0)
+	# Zusätze aus der Animationswerkstatt (data/enemy_anims/grimhauler.json)
+	var off := CreatureAnim.sample("grimhauler", "attack" if attacking else "walk", ta / CYCLE if attacking else fposmod(t / STEP_CYCLE, 1.0))
+	if not off.is_empty():
+		hips.position += off.get("hips_pos", Vector3.ZERO)
+		for n in ["hips", "chest", "neck", "head", "upR", "foreR", "upL", "foreL"]:
+			CreatureAnim.turn(j[n], off.get(n))
+		feet["L"] += off.get("foot_L", Vector3.ZERO)
+		feet["R"] += off.get("foot_R", Vector3.ZERO)
 	_leg_ik("L", feet["L"])
 	_leg_ik("R", feet["R"])
 	# Axt an der rechten Hand: Dorn schleift am Boden, im Angriff über Kopf und mit der Schneide in den Boden
@@ -337,6 +355,7 @@ func _pose(dt: float) -> void:
 	var zv := Vector3(0, sin(phi), cos(phi))
 	axe.quaternion = Basis(yv.cross(zv), yv, zv).get_rotation_quaternion()
 	axe.position = h2
+	CreatureAnim.turn(axe, off.get("axe"))
 	# Glühen der Schneide: Warnung vor dem nicht blockbaren Schlag
 	var glow_k := clampf(k_w * 1.1, 0.0, 1.0) * (1.0 - WillfaultModel.sm((ta - 1.9) / 0.8)) if attacking else 0.0
 	_edge_mat.albedo_color = Color(lerpf(0.24, 0.97, glow_k), lerpf(0.14, 0.92, glow_k), lerpf(0.44, 1.0, glow_k))

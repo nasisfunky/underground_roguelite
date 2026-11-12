@@ -8,6 +8,7 @@ extends Enemy
 
 signal respawn_requested(hollowed: Hollowed)
 
+const CLIP := "hollowed_strike"  ## eigene Angriffsanimation (Animationswerkstatt)
 const VIOLET := Color(0.72, 0.52, 1.0)
 const HEM_HEAT := "#1c0b3d"
 const HEM_HOT := "#9f6bff"
@@ -161,19 +162,18 @@ func _animate(delta: float) -> void:
 	body.on_floor = true
 	body.combat = 1.0 if _player and state != S.DEAD and _player.global_position.distance_to(global_position) < 7.0 else 0.0
 	body.look_target = (_player.global_position + Vector3.UP * 1.4) if _player and state != S.DEAD else null
+	var tr: Vector2 = AnimLibrary.clip(CLIP).trail  # Ausholen | Schlag | Erholen, in der Werkstatt einstellbar
+	body.swing_clip = CLIP
 	match state:
 		S.WINDUP:
 			body.action = &"swing"
-			body.swing_index = 2
-			body.action_t = 0.36 * (state_t / windup_time)
+			body.action_t = tr.x * (state_t / windup_time)
 		S.STRIKE:
 			body.action = &"swing"
-			body.swing_index = 2
-			body.action_t = 0.36 + 0.26 * (state_t / strike_time)
+			body.action_t = tr.x + (tr.y - tr.x) * (state_t / strike_time)
 		S.RECOVER:
 			body.action = &"swing"
-			body.swing_index = 2
-			body.action_t = 0.62 + 0.38 * (state_t / recover_time)
+			body.action_t = tr.y + (1.0 - tr.y) * (state_t / recover_time)
 		S.STAGGER:
 			body.action = &"stagger"
 			body.action_t = state_t / _stagger_len

@@ -53,6 +53,35 @@ func set_state(s: S, duration: float) -> void:
 		_puff.restart()
 
 
+## Aktion für die Werkstatt-Zusätze und ihre normierte Zeit.
+func anim_action() -> String:
+	match state:
+		S.DASH: return "dash"
+		S.STRIKE: return "strike"
+		S.RISE: return "rise"
+		S.SINK: return "sink"
+	return "lurk"
+
+
+func anim_time() -> float:
+	if state in [S.LURK, S.HIDDEN]:
+		return fposmod(_t / 1.2, 1.0)
+	return clampf(state_k / maxf(state_k + state_t, 0.001), 0.0, 1.0)
+
+
+## Animationswerkstatt: Zustand zur Aktion setzen und Haltung zur normierten Zeit k zeigen.
+func preview(action: String, k: float, delta: float) -> void:
+	var info := CreatureAnim.action_info("willamber", action)
+	var dur: float = info[3]
+	state = {"dash": S.DASH, "strike": S.STRIKE, "rise": S.RISE, "sink": S.SINK}.get(action, S.LURK)
+	if action == "lurk":
+		_t = k * 1.2 - delta
+	state_k = k * dur
+	state_t = dur - state_k
+	strike = sin(PI * k) if state == S.STRIKE else 0.0
+	pose(delta)
+
+
 func visible_amount() -> float:
 	return 1.0 - _sink()
 
@@ -102,6 +131,12 @@ func pose(delta: float) -> void:
 		var swing := strike * (1.0 if sx > 0.0 else 0.7)
 		WillfaultModel.rot(j["arm%s_up" % s], 0.95 + dash_lean - 2.4 * swing + 0.08 * sin(t * 17.0 + sx), 0.0, sx * (0.12 + 0.3 * swing))
 		WillfaultModel.rot(j["arm%s_lo" % s], 0.35 + 0.9 * swing, 0.0, 0.0)
+	# Zusätze aus der Animationswerkstatt (data/enemy_anims/willamber.json)
+	var off := CreatureAnim.sample("willamber", anim_action(), anim_time())
+	if not off.is_empty():
+		(j["hips"] as Node3D).position += off.get("hips_pos", Vector3.ZERO)
+		for n in ["spine", "neck", "head", "armR_up", "armR_lo", "armL_up", "armL_lo", "legR_th", "legR_sh", "legL_th", "legL_sh"]:
+			CreatureAnim.turn(j[n], off.get(n))
 	# Schattenfäden schwingen der Bewegung nach
 	var vel := (global_position - _prev_pos) / maxf(delta, 1e-4)
 	_prev_pos = global_position

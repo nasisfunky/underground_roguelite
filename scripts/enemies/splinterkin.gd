@@ -16,6 +16,7 @@ const LEG_UP := 0.3
 const LEG_LO := 0.36
 const BODY_Y := 0.42
 const STEP_TIME := 0.13
+const FOOT_CHANNELS := ["foot_fl", "foot_fr", "foot_bl", "foot_br"]
 
 @export var move_speed := 4.3
 @export var aggro_range := 13.0
@@ -55,6 +56,8 @@ var _crouch := 0.0
 var _hop := 0.0
 var _lean := Vector2.ZERO
 var _rng := RandomNumberGenerator.new()
+var _anim_off := {}
+var puppet := false  ## Animationswerkstatt: keine KI, Zustand wird von außen gesetzt
 
 
 func _ready() -> void:
@@ -150,6 +153,8 @@ func _add(mesh: Mesh, mat: Material, parent: Node3D, pos: Vector3, rot: Vector3,
 # ------------------------------------------------------------------
 
 func _physics_process(delta: float) -> void:
+	if puppet:
+		return
 	if hitstop > 0.0:
 		hitstop -= delta
 		return
@@ -285,6 +290,46 @@ func _turn_toward(dir: Vector3, sharpness: float, delta: float) -> void:
 	facing_yaw = lerp_angle(facing_yaw, atan2(-dir.x, -dir.z), 1.0 - exp(-sharpness * delta))
 
 
+## Aktion für die Werkstatt-Zusätze und ihre normierte Zeit.
+func anim_action() -> String:
+	match state:
+		S.WINDUP: return "windup"
+		S.LEAP: return "leap"
+		S.RECOVER: return "recover"
+		S.STAGGER: return "stagger"
+	return "move"
+
+
+func anim_time() -> float:
+	match state:
+		S.WINDUP: return state_t / windup_time
+		S.LEAP: return state_t / leap_time
+		S.RECOVER: return state_t / recover_time
+		S.STAGGER: return state_t / _stagger_len
+	return fposmod(_time / 0.8, 1.0)
+
+
+## Animationswerkstatt: Zustand zur Aktion setzen und Haltung zur normierten Zeit k zeigen (puppet = true).
+func preview(action: String, k: float, delta: float) -> void:
+	match action:
+		"windup":
+			state = S.WINDUP
+			state_t = k * windup_time
+		"leap":
+			state = S.LEAP
+			state_t = k * leap_time
+		"recover":
+			state = S.RECOVER
+			state_t = k * recover_time
+		"stagger":
+			state = S.STAGGER
+			state_t = k * _stagger_len
+		_:
+			state = S.HUNT
+			_time = k * 0.8 - delta
+	_animate(delta)
+
+
 func _set_state(s: S) -> void:
 	state = s
 	state_t = 0.0
@@ -328,6 +373,10 @@ func _animate(delta: float) -> void:
 	_torso.rotation = Vector3(-_lean.y - 0.25 * _hop + 0.2 * _crouch * (1.0 if state == S.WINDUP else 0.0), 0.0, _lean.x)
 	if state == S.STAGGER:
 		_torso.rotation.z += sin(_time * 40.0) * 0.12
+	# Zusätze aus der Animationswerkstatt (data/enemy_anims/splinterkin.json)
+	_anim_off = CreatureAnim.sample("splinterkin", anim_action(), anim_time()) if state != S.DEAD else {}
+	_torso.position += _anim_off.get("torso_pos", Vector3.ZERO)
+	CreatureAnim.turn(_torso, _anim_off.get("torso"))
 	_update_legs(delta, hv)
 
 
@@ -364,10 +413,12 @@ func _update_legs(delta: float, hv: Vector3) -> void:
 			if _legs[i].t < 1.0:
 				_gait_flip = not _gait_flip
 				break
-	for l in _legs:
+	for i in 4:
+		var l: Dictionary = _legs[i]
 		var hip: Vector3 = _torso.global_transform * (l.anchor as Vector3)
 		var out := (xf.basis * Vector3(signf(l.rest.x), 0, 0)).normalized()
-		_solve_leg(l.up, l.lo, hip, l.foot, out * 0.6 + Vector3.UP * 2.0)
+		var foot: Vector3 = l.foot + xf.basis * (_anim_off.get(FOOT_CHANNELS[i], Vector3.ZERO) as Vector3)
+		_solve_leg(l.up, l.lo, hip, foot, out * 0.6 + Vector3.UP * 2.0)
 
 
 func _solve_leg(upper: Node3D, lower: Node3D, hip: Vector3, foot: Vector3, pole: Vector3) -> void:

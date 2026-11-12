@@ -13,7 +13,7 @@ const HANDLE_PICK_PX := 16.0
 const KEY_SNAP := 0.004
 const DEG := PI / 180.0
 
-enum Mode { CLIP, POSE, GEAR }
+enum Mode { CLIP, POSE, GEAR, ENEMY }
 
 var body: ShadowBody
 var cam: Camera3D
@@ -37,6 +37,24 @@ var _clipboard: Dictionary = {}
 # Haltungen / Ausrüstung
 var pose_name := "idle"
 var gear_item := "shield_back"
+# Gegner
+var enemy_id := "splinterkin"
+var enemy_action := "move"
+var _enemy: Node3D
+var _enemy_walk := 0.0
+var _body_look := ""  ## "", "hollowed", "hollow_one": Figur im Animationsmodus sieht wie dieser Gegner aus
+var _enemy_select: OptionButton
+var _eaction_select: OptionButton
+var _eaction_info: Label
+var _enemy_redirect: Control
+var _enemy_edit: Control
+var _enemy_boxes := {}
+var _figure_ctrls: Array = []
+var _springs_cb: CheckBox  # Gegner -> Control mit seinen Gelenkreglern
+const ENEMY_CHOICES := [["hollowed", "Hollowed"], ["hollow_one", "Hollow One"], ["splinterkin", "Splinterkin"],
+	["grimhauler", "Grimhauler"], ["willamber", "Willamber"]]
+const ENEMY_CAM := {"splinterkin": [Vector3(0, 0.35, -0.2), 2.4], "grimhauler": [Vector3(0, 1.45, -0.3), 6.8],
+	"willamber": [Vector3(0, 0.55, -0.2), 2.8]}
 
 var dirty := {}  ## Datei -> true (ungespeichert)
 var _cam_yaw := 2.4
@@ -64,7 +82,12 @@ var _variant_info: Label
 var _weapon_select: OptionButton
 var _off_select: OptionButton
 var _culture_select: OptionButton
-var _key_list: ItemList
+var _ckey_list: ItemList
+var _ekey_list: ItemList
+## Key-Liste des aktuellen Modus (Animationen oder Gegner)
+var _key_list: ItemList:
+	get:
+		return _ekey_list if mode == Mode.ENEMY else _ckey_list
 var _params := {}  # key -> {"slider", "spin", "scale"}
 var _status: Label
 var _clip_warn: Label
@@ -183,6 +206,19 @@ func _rebuild_body() -> void:
 	body = ShadowBody.new()
 	body.outfit = culture
 	body.has_lantern = true
+	match _body_look:
+		"hollowed":  # wie Hollowed._ready
+			body.willfault = true
+			body.hem_layers = 4
+			body.head_layers = 12
+			body.hem_heat = Hollowed.HEM_HEAT
+			body.hem_hot = Hollowed.HEM_HOT
+			body.eye_color = Hollowed.VIOLET
+			body.has_shield = false
+		"hollow_one":
+			body.ghost = true
+			body.has_shield = false
+			body.has_lantern = false
 	add_child(body)
 	body.build()
 	body.on_floor = true
@@ -190,12 +226,14 @@ func _rebuild_body() -> void:
 
 
 func _apply_weapon() -> void:
-	body.set_weapon(WeaponDef.make(weapon_id))
+	body.set_weapon(WeaponDef.make(&"sword" if _body_look != "" else weapon_id))
 	body.set_equipment(true, _effective_off())
 
 
 ## Zweithand, wie sie im Spiel wäre (Zweihandaxt: nur Licht oder leer).
 func _effective_off() -> StringName:
+	if _body_look != "":
+		return &""
 	var w := WeaponDef.make(weapon_id)
 	if not w.allows_offhand() and offhand != &"light":
 		return &""
@@ -373,7 +411,7 @@ func _build_ui() -> void:
 	title.add_theme_font_size_override("font_size", 20)
 	title.add_theme_color_override("font_color", Color(0.4, 1.0, 1.0))
 	top.add_child(title)
-	for m in [[Mode.CLIP, "Animations"], [Mode.POSE, "Weapon poses"], [Mode.GEAR, "Stowed gear"]]:
+	for m in [[Mode.CLIP, "Animations"], [Mode.POSE, "Weapon poses"], [Mode.GEAR, "Stowed gear"], [Mode.ENEMY, "Enemies"]]:
 		var b := _btn(top, m[1], _set_mode.bind(m[0]))
 		b.toggle_mode = true
 		_mode_btns.append(b)
@@ -413,6 +451,7 @@ func _build_ui() -> void:
 		_culture_select.add_item(c.capitalize())
 	_culture_select.item_selected.connect(func(i): _set_culture(FrayedOutfit.CULTURES[i]))
 	top2.add_child(_culture_select)
+	_figure_ctrls = [wl, _weapon_select, ol, _off_select, cl, _culture_select]
 	top2.add_child(VSeparator.new())
 	for v in [["Front", 0.0, -0.1], ["Side", PI * 0.5, -0.1], ["3/4", 2.4, -0.25], ["Back", PI, -0.2], ["Top", 0.0001, -1.45]]:
 		_btn(top2, v[0], _view.bind(v[1], v[2]))
@@ -420,6 +459,7 @@ func _build_ui() -> void:
 	_build_clip_panel(root)
 	_build_pose_panel(root)
 	_build_gear_panel(root)
+	_build_enemy_panel(root)
 
 	# --- untere Leiste: Zeitleiste + Transport (nur Animationen) ---
 	var bottom := _panel(root)
@@ -456,6 +496,7 @@ func _build_ui() -> void:
 	spr.tooltip_text = "On: playback with the game's spring smoothing. Paused/scrubbing always shows the exact keyframe pose."
 	spr.toggled.connect(func(on): springs_in_play = on)
 	tr.add_child(spr)
+	_springs_cb = spr
 	_time_label = Label.new()
 	tr.add_child(_time_label)
 
@@ -497,9 +538,9 @@ func _build_clip_panel(root: Control) -> void:
 	_clip_select = OptionButton.new()
 	_clip_select.focus_mode = Control.FOCUS_NONE
 	_clip_select.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	for n in AnimLibrary.CLIPS:
+	for n in AnimLibrary.ALL_CLIPS:
 		_clip_select.add_item(AnimLibrary.clip(n).label)
-	_clip_select.item_selected.connect(func(i): _switch_clip(AnimLibrary.CLIPS[i]))
+	_clip_select.item_selected.connect(func(i): _switch_clip(AnimLibrary.ALL_CLIPS[i]))
 	row.add_child(_clip_select)
 	_variant_cb = CheckBox.new()
 	_variant_cb.text = "Own version for this weapon"
@@ -510,11 +551,11 @@ func _build_clip_panel(root: Control) -> void:
 	_variant_info = _note(right, "")
 
 	_heading(right, "Keyframes")
-	_key_list = ItemList.new()
-	_key_list.custom_minimum_size = Vector2(0, 92)
-	_key_list.focus_mode = Control.FOCUS_NONE
-	_key_list.item_selected.connect(func(i): _select_key(i, true))
-	right.add_child(_key_list)
+	_ckey_list = ItemList.new()
+	_ckey_list.custom_minimum_size = Vector2(0, 92)
+	_ckey_list.focus_mode = Control.FOCUS_NONE
+	_ckey_list.item_selected.connect(func(i): _select_key(i, true))
+	right.add_child(_ckey_list)
 	var kb := HBoxContainer.new()
 	right.add_child(kb)
 	_btn(kb, "Add", _add_key_here, "Add a keyframe at the playhead (K)")
@@ -653,15 +694,35 @@ func _build_gear_panel(root: Control) -> void:
 # Modus, Figur, Waffe
 # ==================================================================
 
+var _prev_mode := Mode.CLIP
+
+
+func mode_was_enemy() -> bool:
+	return _prev_mode == Mode.ENEMY
+
+
 func _set_mode(m: Mode) -> void:
+	_prev_mode = mode
 	mode = m
 	for i in _mode_btns.size():
 		_mode_btns[i].set_pressed_no_signal(i == int(m))
 	for k in _panels:
 		(_panels[k] as Control).visible = k == m
-	_bottom.visible = m == Mode.CLIP
-	if m != Mode.CLIP and playing:
+	_bottom.visible = m == Mode.CLIP or (m == Mode.ENEMY and not enemy_id in ["hollowed", "hollow_one"])
+	if playing:
 		_toggle_play()
+	body.visible = m != Mode.ENEMY
+	for c in _figure_ctrls:
+		(c as Control).visible = m != Mode.ENEMY
+	_springs_cb.visible = m == Mode.CLIP
+	if _enemy and is_instance_valid(_enemy):
+		_enemy.visible = m == Mode.ENEMY
+	if m != Mode.ENEMY and _body_look == "" and mode_was_enemy():
+		_cam_target = Vector3(0, 0.95, -0.25)
+		_cam_dist = 3.2
+		_cam_yaw = 2.4
+		_cam_pitch = -0.25
+		_update_camera()
 	_undo.clear()
 	match m:
 		Mode.CLIP:
@@ -669,7 +730,10 @@ func _set_mode(m: Mode) -> void:
 				+ "Dragging at a time without a key creates one.  Red grip = arm can't reach.  Body, legs, head: tabs on the right.\n"
 				+ "RMB drag = orbit   MMB drag = pan   Wheel = zoom   Space = play   K = add key   Del = delete key\n"
 				+ "Left/Right = step (Shift = bigger)   Up/Down = previous/next key   Ctrl+C / Ctrl+V = copy/paste pose   Ctrl+S = save   Ctrl+Z = undo")
-			_refresh_clip_ui()
+			if _prev_mode == Mode.ENEMY:
+				_load_clip(base_clip)
+			else:
+				_refresh_clip_ui()
 		Mode.POSE:
 			_help.text = ("Weapon poses: how each weapon is held standing, walking, in combat stance, two-handed, and where it hangs when stowed.\n"
 				+ "Pick weapon and off-hand at the top, the pose on the right. Drag the handles or use the sliders.  Ctrl+S saves data/poses/<weapon>.json\n"
@@ -680,6 +744,13 @@ func _set_mode(m: Mode) -> void:
 				+ "Drag the orange handle (position) and the small one (facing / blade).  Ctrl+S saves data/poses/gear.json\n"
 				+ "RMB drag = orbit   MMB drag = pan   Wheel = zoom   Ctrl+Z = undo")
 			_set_gear(gear_item)
+		Mode.ENEMY:
+			_help.text = ("Enemies: pick the enemy and one of its actions on the right. Their motion stays procedural (feet find the ground, the axe follows the hand);
+"
+				+ "your keys turn joints and shift feet/body on top of it.  Hollowed and Hollow One: their strike is a normal animation (button on the right).
+"
+				+ "RMB drag = orbit   MMB drag = pan   Wheel = zoom   Space = play   K = add key   Del = delete key   Ctrl+C / Ctrl+V = copy/paste   Ctrl+S = save data/enemy_anims/<enemy>.json")
+			_set_enemy(enemy_id)
 
 
 func _set_weapon(w: StringName) -> void:
@@ -715,18 +786,27 @@ func _pose_id() -> String:
 
 func _load_clip(n: String) -> void:
 	base_clip = n
-	clip_name = AnimLibrary.resolve(n, String(weapon_id))
+	var look := ""
+	if n in AnimLibrary.ENEMY_CLIPS:
+		look = "hollowed" if n == "hollowed_strike" else "hollow_one"
+	if look != _body_look:
+		_body_look = look
+		_rebuild_body()
+	clip_name = n if look != "" else AnimLibrary.resolve(n, String(weapon_id))
 	clip = AnimLibrary.clip(clip_name)
 	_undo.clear()
 	sel_key = -1
-	_clip_select.select(AnimLibrary.CLIPS.find(n))
+	_clip_select.select(AnimLibrary.ALL_CLIPS.find(n))
 	_refresh_clip_ui()
 
 
 func _refresh_clip_ui() -> void:
+	_variant_cb.visible = _body_look == ""
 	_variant_cb.set_pressed_no_signal(clip_name != base_clip)
 	var wname: String = WEAPON_CHOICES[_weapon_index()][1]
 	_variant_info.text = ("Editing the %s version (only used with this weapon)." % wname) if clip_name != base_clip else ("Editing the general version (used by all weapons without their own).")
+	if _body_look != "":
+		_variant_info.text = "Enemy attack. Timing tab: trail window = strike phase (deals damage); before = wind-up, after = recovery."
 	_refresh_keys()
 	_refresh_fields()
 
@@ -770,6 +850,8 @@ func _key_at(time: float) -> int:
 
 ## Neuer Key an der Abspielposition mit der aktuell sichtbaren (exakten) Pose.
 func _add_key_here() -> int:
+	if mode == Mode.ENEMY:
+		return _add_enemy_key()
 	if t <= 0.01 or t >= 0.99:
 		_flash("Start and end are the stance pose. Move the playhead inside the animation.")
 		return -1
@@ -798,6 +880,26 @@ func _add_key_here() -> int:
 	return sel_key
 
 
+func _add_enemy_key() -> int:
+	if clip.is_empty():
+		return -1
+	if not clip.loop and (t <= 0.01 or t >= 0.99):
+		_flash("Start and end are the enemy's own motion. Move the playhead inside the action.")
+		return -1
+	var existing := _key_at(t)
+	if existing >= 0:
+		_select_key(existing)
+		return existing
+	_push_undo()
+	var k := {"t": snappedf(minf(t, 0.995), 0.005), "ch": _enemy_values_here()}
+	clip.keys.append(k)
+	clip.keys.sort_custom(func(a, b): return a.t < b.t)
+	sel_key = clip.keys.find(k)
+	_set_t(k.t)
+	_changed()
+	return sel_key
+
+
 func _delete_key() -> void:
 	if sel_key < 0 or sel_key >= clip.keys.size():
 		return
@@ -808,6 +910,11 @@ func _delete_key() -> void:
 
 
 func _copy_key() -> void:
+	if mode == Mode.ENEMY:
+		var ek := _key_at(t)
+		_clipboard = {"ch": (clip.keys[ek].ch as Dictionary).duplicate() if ek >= 0 else _enemy_values_here(), "enemy": enemy_id}
+		_flash("Pose copied")
+		return
 	var k := _key_at(t)
 	if k < 0:
 		_pose_now(0.0, true)
@@ -822,6 +929,24 @@ func _copy_key() -> void:
 func _paste_key() -> void:
 	if _clipboard.is_empty():
 		_flash("Nothing copied yet")
+		return
+	if mode == Mode.ENEMY:
+		if _clipboard.get("enemy", "") != enemy_id:
+			_flash("Copy a pose of this enemy first")
+			return
+		var ek := _key_at(t)
+		if ek < 0:
+			ek = _add_enemy_key()
+			if ek < 0:
+				return
+		else:
+			_push_undo()
+		clip.keys[ek].ch = (_clipboard.ch as Dictionary).duplicate()
+		_changed()
+		_flash("Pose pasted at t = %.3f" % clip.keys[ek].t)
+		return
+	if _clipboard.has("enemy"):
+		_flash("That pose belongs to an enemy")
 		return
 	var k := _key_at(t)
 	if k < 0:
@@ -842,6 +967,10 @@ func _clean_body() -> void:
 	if sel_key < 0:
 		return
 	_push_undo()
+	if mode == Mode.ENEMY:
+		clip.keys[sel_key].ch = {}
+		_changed()
+		return
 	clip.keys[sel_key].body = AnimLibrary.zero_body()
 	_changed()
 
@@ -891,6 +1020,14 @@ func _roll_blade(angle: float) -> void:
 
 func _set_t(v: float) -> void:
 	t = clampf(v, 0.0, 1.0)
+	if mode == Mode.ENEMY:
+		sel_key = _key_at(t)
+		if sel_key >= 0 and _key_list.item_count > sel_key:
+			_key_list.select(sel_key)
+		elif _key_list:
+			_key_list.deselect_all()
+		_refresh_enemy_fields()
+		return
 	var k := _key_at(t)
 	if k >= 0 and k != sel_key:
 		sel_key = k
@@ -907,6 +1044,18 @@ func _changed() -> void:
 
 func _refresh_keys() -> void:
 	_key_list.clear()
+	if mode == Mode.ENEMY:
+		for k in clip.get("keys", []):
+			var names: Array[String] = []
+			for c in k.ch:
+				if (k.ch[c] as Vector3).length() > 0.0005:
+					names.append(str(c))
+			_key_list.add_item("t = %.3f   %s" % [k.t, ", ".join(names) if not names.is_empty() else "(nothing changed)"])
+		if sel_key >= 0 and sel_key < _key_list.item_count:
+			_key_list.select(sel_key)
+		if _timeline:
+			_timeline.queue_redraw()
+		return
 	for k in clip.keys:
 		var extras := 0
 		for v in k.get("body", []):
@@ -921,6 +1070,9 @@ func _refresh_keys() -> void:
 
 func _refresh_fields() -> void:
 	if clip.is_empty():
+		return
+	if mode == Mode.ENEMY:
+		_refresh_enemy_fields()
 		return
 	_set_param_ui("c.duration", clip.duration)
 	_set_param_ui("c.hit", clip.hit)
@@ -993,6 +1145,21 @@ func _param_changed(key: String, v: float) -> void:
 			_push_undo(true)
 			PoseLibrary.weapon(_pose_id()).two_hand_offset = value
 			_pose_changed()
+		"e":
+			if clip.is_empty() or parts[1] != enemy_id:
+				return
+			var ek := _key_at(t)
+			if ek < 0:
+				ek = _add_enemy_key()
+				if ek < 0:
+					_refresh_enemy_fields()
+					return
+			else:
+				_push_undo(true)
+			var ch: Dictionary = clip.keys[ek].ch
+			ch[parts[2]] = _set_axis(ch.get(parts[2], Vector3.ZERO), parts[3], value, false)
+			_mark_dirty()
+			_refresh_keys()
 		"g":
 			_push_undo(true)
 			var g: Dictionary = PoseLibrary.gear()[gear_item]
@@ -1003,6 +1170,16 @@ func _param_changed(key: String, v: float) -> void:
 			_gear_changed()
 	if _timeline:
 		_timeline.queue_redraw()
+
+
+## Regler zeigen den Key an der Abspielposition, sonst die dort gerade wirkenden Werte.
+func _refresh_enemy_fields() -> void:
+	var k := _key_at(t)
+	var vals: Dictionary = clip.keys[k].ch if k >= 0 else _enemy_values_here()
+	for c in CreatureAnim.CREATURES[enemy_id].channels:
+		var v: Vector3 = vals.get(c[0], Vector3.ZERO)
+		for ai in 3:
+			_set_param_ui("e.%s.%s.%s" % [enemy_id, c[0], ["x", "y", "z"][ai]], v[ai])
 
 
 func _set_axis(v: Vector3, axis: String, value: float, normalize: bool) -> Vector3:
@@ -1136,6 +1313,175 @@ func _reset_gear() -> void:
 
 
 # ==================================================================
+# Gegner
+# ==================================================================
+
+func _build_enemy_panel(root: Control) -> void:
+	var right := _right_panel(root)
+	_panels[Mode.ENEMY] = right.get_parent()
+	_heading(right, "Enemy")
+	_enemy_select = OptionButton.new()
+	_enemy_select.focus_mode = Control.FOCUS_NONE
+	for e in ENEMY_CHOICES:
+		_enemy_select.add_item(e[1])
+	_enemy_select.item_selected.connect(func(i): _set_enemy(ENEMY_CHOICES[i][0]))
+	right.add_child(_enemy_select)
+	# Hollowed / Hollow One: Shade-Körper, ihr Angriff ist ein normaler Clip
+	_enemy_redirect = VBoxContainer.new()
+	right.add_child(_enemy_redirect)
+	_note(_enemy_redirect, "This enemy has a Shade body, so its attack is a normal animation with all hand, body and leg controls. "
+		+ "It is edited in the Animations mode (the figure there then looks like this enemy).\n\n"
+		+ "Timing tab: the trail window is the enemy's strike phase. Before it = wind-up, after it = recovery.")
+	_btn(_enemy_redirect, "Edit its strike in Animations", _open_enemy_clip)
+	# übrige Gegner: Aktion, Keys, Gelenke
+	_enemy_edit = VBoxContainer.new()
+	_enemy_edit.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	right.add_child(_enemy_edit)
+	var row := HBoxContainer.new()
+	_enemy_edit.add_child(row)
+	var l := Label.new()
+	l.text = "Action"
+	row.add_child(l)
+	_eaction_select = OptionButton.new()
+	_eaction_select.focus_mode = Control.FOCUS_NONE
+	_eaction_select.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_eaction_select.item_selected.connect(func(i): _set_enemy_action(CreatureAnim.CREATURES[enemy_id].actions[i][0]))
+	row.add_child(_eaction_select)
+	_eaction_info = _note(_enemy_edit, "")
+	_heading(_enemy_edit, "Keyframes")
+	_ekey_list = ItemList.new()
+	_ekey_list.custom_minimum_size = Vector2(0, 80)
+	_ekey_list.focus_mode = Control.FOCUS_NONE
+	_ekey_list.item_selected.connect(func(i): _select_key(i, true))
+	_enemy_edit.add_child(_ekey_list)
+	var kb := HBoxContainer.new()
+	_enemy_edit.add_child(kb)
+	_btn(kb, "Add", _add_key_here, "Add a keyframe at the playhead (K)")
+	_btn(kb, "Delete", _delete_key, "Delete the selected keyframe (Del)")
+	_btn(kb, "Copy", _copy_key, "Copy the pose at the playhead (Ctrl+C)")
+	_btn(kb, "Paste", _paste_key, "Paste the copied pose at the playhead (Ctrl+V)")
+	_btn(kb, "Clean", _clean_body, "Set every joint of this key back to 0")
+	var sc := _scroll(_enemy_edit)
+	_note(sc, "Values are added on top of the enemy's own motion (0 = unchanged). Turns in degrees around the joint's own axes. Moving a slider where no key is creates one.")
+	for cid in CreatureAnim.CREATURES:
+		var box := VBoxContainer.new()
+		sc.add_child(box)
+		_enemy_boxes[cid] = box
+		for c in CreatureAnim.CREATURES[cid].channels:
+			var head := Label.new()
+			head.text = c[1] + ("   (m)" if c[2] == "pos" else "")
+			head.add_theme_color_override("font_color", Color(0.75, 0.88, 0.88))
+			box.add_child(head)
+			var names: Array = ["   x (right)", "   y (up)", "   z (back)"] if c[2] == "pos" else ["   Pitch (x)", "   Turn (y)", "   Roll (z)"]
+			for ai in 3:
+				var key := "e.%s.%s.%s" % [cid, c[0], ["x", "y", "z"][ai]]
+				if c[2] == "pos":
+					_param(box, key, names[ai], -0.6, 0.6, 0.005, 1.0)
+				else:
+					_param(box, key, names[ai], -180.0, 180.0, 0.5, 1.0)
+
+
+func _set_enemy(id: String) -> void:
+	enemy_id = id
+	for i in ENEMY_CHOICES.size():
+		if ENEMY_CHOICES[i][0] == id:
+			_enemy_select.select(i)
+	var shade := id in ["hollowed", "hollow_one"]
+	_enemy_redirect.visible = shade
+	_enemy_edit.visible = not shade
+	if _enemy:
+		_enemy.queue_free()
+		_enemy = null
+	if mode == Mode.ENEMY:
+		_bottom.visible = not shade
+	if shade:
+		clip = {}
+		_cam_target = Vector3(0, 0.95, -0.25)
+		_cam_dist = 3.2
+		_update_camera()
+		return
+	for cid in _enemy_boxes:
+		(_enemy_boxes[cid] as Control).visible = cid == id
+	match id:
+		"splinterkin":
+			var sk := Splinterkin.new()
+			sk.puppet = true
+			_enemy = sk
+		"grimhauler":
+			_enemy = GrimhaulerBody.new()
+		"willamber":
+			_enemy = WillamberBody.new()
+	add_child(_enemy)
+	_enemy.visible = mode == Mode.ENEMY
+	_eaction_select.clear()
+	for a in CreatureAnim.CREATURES[id].actions:
+		_eaction_select.add_item(a[1])
+	var cam_set: Array = ENEMY_CAM[id]
+	_cam_target = cam_set[0]
+	_cam_dist = cam_set[1]
+	_cam_yaw = 0.75  # schräg von vorn: Gesicht und Arme sichtbar
+	_cam_pitch = -0.2
+	_update_camera()
+	_set_enemy_action(CreatureAnim.CREATURES[id].actions[0][0])
+
+
+func _set_enemy_action(a: String) -> void:
+	enemy_action = a
+	var info := CreatureAnim.action_info(enemy_id, a)
+	_eaction_select.select(CreatureAnim.CREATURES[enemy_id].actions.find(info))
+	_eaction_info.text = info[4] + ("  Loops: start and end flow into each other." if info[2] else "  Starts and ends with the enemy's own motion.")
+	clip = {"keys": CreatureAnim.data(enemy_id)[a].keys, "duration": info[3], "hit": -1.0, "trail": Vector2(-1, -1), "loop": info[2]}
+	if enemy_id == "splinterkin":
+		_cam_target = ENEMY_CAM.splinterkin[0]
+		_update_camera()
+	sel_key = -1
+	t = 0.0
+	_undo.clear()
+	_refresh_keys()
+	_refresh_fields()
+
+
+func _open_enemy_clip() -> void:
+	var c := "hollowed_strike" if enemy_id == "hollowed" else "hollow_one_strike"
+	_set_mode(Mode.CLIP)
+	_switch_clip(c)
+
+
+## Aktuelle Zusätze an der Abspielposition (Grad bzw. m), für neue Keys / Kopieren.
+func _enemy_values_here() -> Dictionary:
+	var out := {}
+	var smp := CreatureAnim.sample(enemy_id, enemy_action, t)
+	for c in smp:
+		out[c] = (smp[c] as Vector3) * (180.0 / PI) if CreatureAnim.channel_kind(enemy_id, c) == "rot" else smp[c]
+	return out
+
+
+func _enemy_pose(delta: float) -> void:
+	if _enemy == null or not is_instance_valid(_enemy):
+		return
+	var dt := maxf(delta, 1.0 / 120.0)
+	if _enemy is Splinterkin:
+		var sk := _enemy as Splinterkin
+		if enemy_action == "move":
+			# im Kreis laufen, damit die Beine wirklich Schritte setzen
+			_enemy_walk += dt * 2.2 / 1.1
+			var p := Vector3(cos(_enemy_walk), 0, sin(_enemy_walk)) * 1.1
+			var v := Vector3(-sin(_enemy_walk), 0, cos(_enemy_walk)) * 2.2
+			sk.global_position = p
+			sk.velocity = v
+			sk.facing_yaw = atan2(-v.x, -v.z)
+			_cam_target = Vector3(p.x, _cam_target.y, p.z)  # Kamera läuft mit
+			_update_camera()
+		else:
+			sk.global_position = Vector3.ZERO
+			sk.velocity = Vector3.ZERO
+			sk.facing_yaw = 0.0
+		sk.preview(enemy_action, t, dt)
+	else:
+		_enemy.call("preview", enemy_action, t, dt)
+
+
+# ==================================================================
 # Speichern, Rückgängig
 # ==================================================================
 
@@ -1145,6 +1491,8 @@ func _file_key() -> String:
 			return "pose:" + _pose_id()
 		Mode.GEAR:
 			return "pose:gear"
+		Mode.ENEMY:
+			return "enemy:" + enemy_id
 	return "anim:" + clip_name
 
 
@@ -1165,6 +1513,12 @@ func _save() -> void:
 		Mode.GEAR:
 			err = PoseLibrary.save("gear")
 			what = "data/poses/gear.json"
+		Mode.ENEMY:
+			if clip.is_empty():
+				_flash("Hollowed and Hollow One are saved in the Animations mode")
+				return
+			err = CreatureAnim.save(enemy_id)
+			what = "data/enemy_anims/%s.json" % enemy_id
 	if err == OK:
 		dirty.erase(_file_key())
 		_flash("Saved " + what)
@@ -1177,6 +1531,10 @@ func _revert() -> void:
 		Mode.CLIP:
 			AnimLibrary.reload()
 			_load_clip(base_clip)
+		Mode.ENEMY:
+			CreatureAnim.reload(enemy_id)
+			if not clip.is_empty():
+				_set_enemy_action(enemy_action)
 		Mode.POSE, Mode.GEAR:
 			PoseLibrary.reload()
 			_refresh_pose_ui()
@@ -1192,6 +1550,8 @@ func _snapshot() -> Variant:
 			return PoseLibrary.weapon(_pose_id()).duplicate(true)
 		Mode.GEAR:
 			return PoseLibrary.gear().duplicate(true)
+		Mode.ENEMY:
+			return CreatureAnim.copy(enemy_id)
 	return AnimLibrary.duplicate_clip(clip)
 
 
@@ -1225,6 +1585,12 @@ func _do_undo() -> void:
 			PoseLibrary._cache["gear"] = snap
 			PoseLibrary.mark_changed()
 			_refresh_gear_ui()
+		Mode.ENEMY:
+			CreatureAnim.set_data(enemy_id, snap)
+			clip.keys = (snap as Dictionary)[enemy_action].keys
+			sel_key = mini(sel_key, clip.keys.size() - 1)
+			_refresh_keys()
+			_refresh_fields()
 	_mark_dirty()
 
 
@@ -1283,6 +1649,18 @@ func _hold(weapon_drawn: bool, off: StringName) -> void:
 
 
 func _process(delta: float) -> void:
+	if mode == Mode.ENEMY:
+		if playing and not clip.is_empty():
+			t += delta * speed / maxf(clip.duration, 0.05)
+			if t >= 1.0:
+				t = fposmod(t, 1.0) if clip.loop else 0.0
+			_refresh_enemy_fields()
+		_enemy_pose(delta * speed)
+		_update_handles()
+		if not clip.is_empty():
+			_time_label.text = "t = %.3f   (%.2f s of %.2f s)%s" % [t, t * clip.duration, clip.duration, "   *unsaved*" if dirty.get(_file_key(), false) else ""]
+			_timeline.queue_redraw()
+		return
 	if mode == Mode.CLIP and playing:
 		if _pause_t > 0.0:
 			_pause_t -= delta
@@ -1309,6 +1687,8 @@ func _process(delta: float) -> void:
 ## Welche Griffe gibt es gerade, und wo liegen sie?
 func _handle_positions() -> Dictionary:
 	var out := {}
+	if mode == Mode.ENEMY:
+		return out
 	var pts := body.sword_points()
 	var off_node: Node3D = null
 	if body.off_item == &"shield" and body.shield:
@@ -1471,13 +1851,13 @@ func _unhandled_input(event: InputEvent) -> void:
 				KEY_S: _save()
 				KEY_Z: _do_undo()
 				KEY_C:
-					if mode == Mode.CLIP:
+					if _keyed_mode():
 						_copy_key()
 				KEY_V:
-					if mode == Mode.CLIP:
+					if _keyed_mode():
 						_paste_key()
 			return
-		if mode != Mode.CLIP:
+		if not _keyed_mode():
 			return
 		match k.keycode:
 			KEY_SPACE: _toggle_play()
@@ -1487,6 +1867,11 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_RIGHT: _set_t(t + big)
 			KEY_UP: _jump_key(-1)
 			KEY_DOWN: _jump_key(1)
+
+
+## Modus mit Zeitleiste und Keys (Animationen, Gegner mit eigenen Aktionen).
+func _keyed_mode() -> bool:
+	return mode == Mode.CLIP or (mode == Mode.ENEMY and not clip.is_empty())
 
 
 func _begin_drag(h: String) -> void:
@@ -1602,14 +1987,17 @@ class Timeline extends Control:
 			return
 		var h := size.y
 		draw_rect(Rect2(Vector2.ZERO, size), Color(0.03, 0.05, 0.06))
-		draw_rect(Rect2(_x(c.trail.x), 4, _x(c.trail.y) - _x(c.trail.x), h - 8), Color(0.3, 0.9, 1.0, 0.12))
-		draw_line(Vector2(_x(c.hit), 2), Vector2(_x(c.hit), h - 2), Color(1.0, 0.3, 0.25), 2.0)
-		draw_string(get_theme_default_font(), Vector2(_x(c.hit) + 4, 14), "hit", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(1.0, 0.45, 0.4))
+		if c.trail.x >= 0.0:
+			draw_rect(Rect2(_x(c.trail.x), 4, _x(c.trail.y) - _x(c.trail.x), h - 8), Color(0.3, 0.9, 1.0, 0.12))
+		if c.hit >= 0.0:
+			draw_line(Vector2(_x(c.hit), 2), Vector2(_x(c.hit), h - 2), Color(1.0, 0.3, 0.25), 2.0)
+			draw_string(get_theme_default_font(), Vector2(_x(c.hit) + 4, 14), "hit", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(1.0, 0.45, 0.4))
 		for i in 11:
 			var x := _x(i / 10.0)
 			draw_line(Vector2(x, h - 10), Vector2(x, h - 2), Color(0.4, 0.5, 0.5), 1.0)
-		for tt in [0.0, 1.0]:
-			_diamond(Vector2(_x(tt), h * 0.5), 6.0, Color(0.45, 0.5, 0.5))
+		if not c.get("loop", false):
+			for tt in [0.0, 1.0]:
+				_diamond(Vector2(_x(tt), h * 0.5), 6.0, Color(0.45, 0.5, 0.5))
 		for i in c.keys.size():
 			var col := Color(1.0, 0.85, 0.2) if i == ws.sel_key else Color(0.85, 0.9, 0.9)
 			_diamond(Vector2(_x(c.keys[i].t), h * 0.5), 8.0, col)

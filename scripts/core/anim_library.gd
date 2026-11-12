@@ -10,6 +10,11 @@ extends RefCounted
 
 const DIR := "res://data/anims/"
 const CLIPS := ["swing_0", "swing_1", "heavy", "thrust", "shove", "sweep", "hook", "bind", "sever", "rake", "flurry"]
+## Angriffe der Gegner mit Shade-Körper. Phasen: Ausholen bis trail.x, Schlag (Schaden) bis trail.y, dann Erholen.
+## Ohne eigene Datei: Kopie der Heavy-Animation (so sahen sie vorher aus).
+const ENEMY_CLIPS := ["hollowed_strike", "hollow_one_strike"]
+const ENEMY_LABELS := {"hollowed_strike": "Enemy: Hollowed strike", "hollow_one_strike": "Enemy: Hollow One strike"}
+const ALL_CLIPS := CLIPS + ENEMY_CLIPS
 ## Zusätzliche Körpersteuerung je Keyframe (Werkstatt). Werte addieren sich zur prozeduralen Pose (0 = unverändert).
 ## Winkel in Radiant, step in Metern. In der Datei stehen nur Werte ungleich 0.
 const BODY_FIELDS := ["bank", "hips_turn", "head_yaw", "head_pitch", "step",
@@ -66,7 +71,13 @@ static func clip(clip_name: String) -> Dictionary:
 	if c.is_empty():
 		if "@" in clip_name:
 			return clip(clip_name.get_slice("@", 0))  # keine eigene Version: allgemeiner Clip
-		c = builtin(clip_name)
+		if clip_name in ENEMY_CLIPS:
+			c = duplicate_clip(clip("heavy"))
+			c.name = clip_name
+			c.label = ENEMY_LABELS[clip_name]
+			c.trail = Vector2(0.36, 0.62)
+		else:
+			c = builtin(clip_name)
 	_cache[clip_name] = c
 	return c
 
