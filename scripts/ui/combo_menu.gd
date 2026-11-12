@@ -164,8 +164,11 @@ func refresh() -> void:
 			b.modulate = Color(1, 0.9, 0.7) if m.finisher else Color(1, 1, 1)
 			if not ok:
 				b.modulate = Color(0.6, 0.5, 0.5)
+	# Der gedrückte Knopf sendet gerade noch sein Signal: erst aus dem Baum nehmen, später löschen
+	# (sofortiges free() lässt Godot im Editor an dieser Stelle anhalten)
 	for c in _pool_box.get_children():
-		c.free()
+		_pool_box.remove_child(c)
+		c.queue_free()
 	for id in player.combo_pool:
 		var m := ComboModules.make(id)
 		var b := Button.new()
