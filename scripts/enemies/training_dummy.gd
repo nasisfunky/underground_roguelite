@@ -8,6 +8,7 @@ var _wobble_vel := Vector2.ZERO
 var _flash_t := 0.0
 var _meshes: Array[MeshInstance3D] = []
 var _flash_mat: StandardMaterial3D
+var _idle_t := 0.0  ## seit dem letzten Treffer/Stoß: danach rutscht die Puppe langsam an ihren Platz zurück
 
 
 func _ready() -> void:
@@ -51,6 +52,7 @@ func _on_hit(info: DamageInfo, dir: Vector3) -> void:
 	var local := global_transform.basis.inverse() * dir
 	_wobble_vel += Vector2(-local.z, local.x) * (3.0 + info.knockback * 1.2)
 	_flash_t = 0.08
+	_idle_t = 0.0
 	for m in _meshes:
 		m.material_overlay = _flash_mat
 	# Puppe "stirbt" nie
@@ -71,8 +73,22 @@ func _physics_process(delta: float) -> void:
 		if _flash_t <= 0.0:
 			for m in _meshes:
 				m.material_overlay = null
+	# Gezogen/gestoßen (Kombo-Bausteine): Puppe rutscht über den Boden, später langsam zurück an ihren Platz
+	_idle_t += delta
+	var hv := Vector3.ZERO
+	if is_forced():
+		_idle_t = 0.0
+		hv = _forced_velocity(hv, delta)
+		_wobble_vel += Vector2(1.0, 0.0) * delta * 6.0
+	elif _idle_t > 4.0 and status.is_empty():
+		var home := spawn_transform.origin - global_position
+		home.y = 0.0
+		if home.length() > 0.05:
+			hv = home.normalized() * minf(1.6, home.length() * 4.0)
+	velocity.x = hv.x
+	velocity.z = hv.z
 	if not is_on_floor():
 		velocity.y -= 30.0 * delta
 	else:
-		velocity = Vector3.ZERO
+		velocity.y = 0.0
 	move_and_slide()

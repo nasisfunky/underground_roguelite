@@ -69,6 +69,9 @@ func _ready() -> void:
 	dummy.health_changed.connect(func(_c, _m): hits[0] += 1)
 	p.input._draw = true  # Waffe ziehen (Y); das automatische Ziehen beim Angriff prüft der Bewegungstest
 	await _phys(45)
+	# Kette wie der klassische Auto-Angriff: Vorhand, Rückhand (die Bausteine prüft der Kampftest)
+	var saved_chain := p.combo_chain.duplicate()
+	p.combo_chain.assign([&"cut", &"backcut", &"", &"", &""])
 	_check("Ohne Klick kein Angriff", hits[0] == 0, "%d Treffer" % hits[0])
 	var st_before := p.stamina
 	p.input._attack = 1
@@ -92,6 +95,7 @@ func _ready() -> void:
 	await _phys(80)
 	_check("Stich trifft stärker", hp_before - dummy.health > p.swing_damage * 1.2, "%.1f Schaden" % (hp_before - dummy.health))
 	await _phys(40)
+	p.combo_chain.assign(saved_chain)
 
 	# --- Fähigkeit 1 ---
 	hits[0] = 0

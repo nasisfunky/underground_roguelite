@@ -55,6 +55,10 @@ var weapon_p := 2.0
 var off_item: StringName = &""  ## Teil, das die linke Hand gerade hält, greift oder wegsteckt
 var off_p := 0.0
 var sprint := 0.0  ## 0..1, Sprinthaltung
+## Waffe beidhändig führen (Zweihandaxt, Speer ohne Zweithand-Teil): linke Hand greift den Schaft
+var two_hand := false
+## Zweithand-Dolch sticht nach (1 -> 0, setzt der Controller)
+var off_jab := 0.0
 ## Rolle: Richtung relativ zum Körper ("fwd", "back", "left", "right")
 var roll_kind: StringName = &"fwd"
 ## Klettern: Bewegung an der Wand (x seitlich, y hoch) und Kletterzyklus (rad)
@@ -165,6 +169,13 @@ var _sp_hz: Spring
 var _sp_rest_r: Spring
 var _sp_rest_l: Spring
 var _light_out := 0.0  ## 0..1, wie weit das Licht gerade vorgehalten ist
+var weapon_def: WeaponDef  ## null = Waffe der Kultur
+var off_dagger: Node3D  ## Dolch für die linke Hand (statt Schild)
+var has_off_dagger := false
+var _culture_weapon: Node3D
+var _culture_len := 0.78
+var _custom_weapon: Node3D
+var _two_w := 0.0  ## 0..1, Gewicht des beidhändigen Griffs
 
 ## Ablagen (Hüft- bzw. Brust-Koordinaten)
 const LANTERN_BELT := Vector3(0.21, 0.04, 0.0)  ## rechte Hüfte (links hängt die Waffe)
@@ -283,7 +294,8 @@ func _build_frayed() -> void:
 	head.add_child(head_light)
 
 	sword = _joint(chest, Vector3.ZERO)
-	_part(parts, "Weapon", sword)
+	_culture_weapon = _part(parts, "Weapon", sword)
+	_culture_len = weapon_length
 	if has_shield and parts.has("Shield"):
 		shield = _joint(chest, Vector3.ZERO)
 		_part(parts, "Shield", shield).position.z = -0.05
@@ -329,6 +341,42 @@ func _build_frayed() -> void:
 	cloth.setup(self, outfit_info, parts, joints)
 
 
+## Waffe tauschen (Spieler). null oder Kulturwaffe = Modell aus dem Outfit.
+func set_weapon(w: WeaponDef) -> void:
+	weapon_def = w
+	if _custom_weapon:
+		_custom_weapon.queue_free()
+		_custom_weapon = null
+	var culture := w == null or w.culture
+	_culture_weapon.visible = culture
+	weapon_length = _culture_len if culture else w.length
+	if not culture:
+		_custom_weapon = Node3D.new()
+		_custom_weapon.name = "CustomWeapon"
+		sword.add_child(_custom_weapon)
+		WeaponDef.build_mesh(w.id, _custom_weapon)
+	# Zweithand-Dolch gibt es für den Spieler immer (liegt hinten am Gürtel)
+	if off_dagger == null and not willfault:
+		off_dagger = _joint(chest, Vector3.ZERO)
+		off_dagger.name = "OffDagger"
+		WeaponDef.build_mesh(&"off_dagger", off_dagger)
+		has_off_dagger = true
+	var old := hips.get_node_or_null("Scabbard")
+	if old:
+		old.free()
+	var old2 := hips.get_node_or_null("DaggerSheath")
+	if old2:
+		old2.free()
+	if not willfault:
+		_build_scabbard()
+
+
+## Weltposition einer Hand (links/rechts) – z. B. Ursprung der Schattenranke.
+func hand_position(left: bool) -> Vector3:
+	var lo := arm_lo_l if left else arm_lo_r
+	return lo.global_transform * Vector3(0, -LOWER_ARM, 0)
+
+
 ## Sofort umrüsten (ohne Animation): Waffe gezogen?, linke Hand: &"shield", &"light" oder &"".
 func set_equipment(weapon: bool, off: StringName) -> void:
 	want_weapon = weapon
@@ -337,6 +385,8 @@ func set_equipment(weapon: bool, off: StringName) -> void:
 	if off == &"shield" and not has_shield:
 		off = &""
 	if off == &"light" and _light_kind == &"":
+		off = &""
+	if off == &"dagger" and not has_off_dagger:
 		off = &""
 	off_item = off
 	off_p = 2.0 if off != &"" else 0.0
@@ -365,10 +415,24 @@ func light_held() -> bool:
 func _build_scabbard() -> void:
 	var leather := LowPoly.mat(Color(0.075, 0.055, 0.045))
 	var fitting := LowPoly.mat(Color(0.32, 0.24, 0.12), 0.0, 0.5)
+	if has_off_dagger:
+		var ds := _joint(hips, Vector3.ZERO)
+		ds.name = "DaggerSheath"
+		ds.transform = _off_dagger_stow_xf()
+		LowPoly.mesh_instance(LowPoly.box(Vector3(0.05, 0.026, 0.3)), leather, ds, Vector3(0, 0, -0.2))
 	var holder := _joint(hips, Vector3.ZERO)
 	holder.name = "Scabbard"
+	if weapon_def and weapon_def.stow == &"back":
+		# Stangenwaffe auf dem Rücken: nur ein Riemen quer über den Rumpf
+		holder.transform = Transform3D.IDENTITY
+		var strap := LowPoly.mesh_instance(LowPoly.box(Vector3(0.035, 0.62, 0.02)), leather, chest, Vector3(0.0, 0.2, 0.0))
+		strap.name = "BackStrap"
+		strap.rotation.z = -0.55 if weapon_def.id == &"spear" else 0.55
+		strap.position.z = 0.23
+		strap.reparent(holder)
+		return
 	holder.transform = _sword_stow_xf()
-	if outfit == "rimefall":
+	if outfit == "rimefall" and (weapon_def == null or weapon_def.culture):
 		LowPoly.mesh_instance(LowPoly.box(Vector3(0.07, 0.05, 0.05)), leather, holder, Vector3(0, 0, -0.1))
 		return
 	var length := weapon_length - 0.1
@@ -382,10 +446,28 @@ func _build_scabbard() -> void:
 
 ## Lage der weggesteckten Waffe (Hüft-Koordinaten): Griff vorn an der linken Hüfte, Klinge nach hinten unten.
 func _sword_stow_xf() -> Transform3D:
+	if weapon_def and weapon_def.stow == &"back":
+		return chest.transform * _back_stow_chest()
 	var dir := Vector3(-0.14, -0.6, 0.79).normalized()
-	if outfit == "rimefall":
+	if outfit == "rimefall" and (weapon_def == null or weapon_def.culture):
 		dir = Vector3(-0.12, -0.9, 0.42).normalized()  # Axt: Kopf nach unten in der Schlaufe
 	return Transform3D(_basis_from(-dir, Vector3(1, 0, 0)), SWORD_BELT)
+
+
+## Stangenwaffen auf dem Rücken (Brust-Koordinaten): Speer schräg, Spitze über der linken Schulter;
+## Axt mit dem Kopf über der rechten Schulter.
+func _back_stow_chest() -> Transform3D:
+	var dir := Vector3(-0.5, 0.85, 0.06).normalized()
+	var pos := Vector3(0.12, -0.04, 0.35)
+	if weapon_def.id == &"greataxe":
+		dir = Vector3(0.36, 0.92, 0.06).normalized()
+		pos = Vector3(-0.12, -0.12, 0.34)
+	return Transform3D(_basis_from(-dir, Vector3(0, 0, 1)), pos)
+
+
+## Zweithand-Dolch weggesteckt: quer hinten am Gürtel, Griff rechts (Hüft-Koordinaten).
+func _off_dagger_stow_xf() -> Transform3D:
+	return Transform3D(_basis_from(Vector3(1.0, 0.25, 0.1).normalized(), Vector3(0, 0, 1)), Vector3(-0.14, 0.02, 0.17))
 
 
 func _dim_mat() -> StandardMaterial3D:
@@ -547,7 +629,7 @@ func set_eye_intensity(v: float) -> void:
 
 
 func sword_points() -> Array[Vector3]:
-	var base := sword.global_transform * Vector3(0, 0, -0.12)
+	var base := sword.global_transform * Vector3(0, 0, -maxf(0.12, weapon_length - 0.6))
 	var tip := sword.global_transform * Vector3(0, 0, -weapon_length)
 	return [base, tip]
 
@@ -697,6 +779,20 @@ func tick(delta: float) -> void:
 		sflat = sflat.lerp(Vector3(1, 0, 0.3), cw)
 		sh_pos = sh_pos.lerp(GUARD_SHIELD + bob_g, cw)
 		sh_front = sh_front.lerp(GUARD_SHIELD_FRONT, cw)
+	# Beidhändig: Speer mit der Spitze nach vorn (Kampf) bzw. schräg gesenkt, Axt quer vor dem Körper
+	if _two_w > 0.0 and weapon_def:
+		var k2 := _two_w * _two_w * (3.0 - 2.0 * _two_w)
+		var tg: Vector3
+		var td: Vector3
+		if weapon_def.id == &"spear":
+			tg = Vector3(0.24, -0.08, -0.12).lerp(Vector3(0.22, 0.0, -0.2), cw)
+			td = Vector3(-0.05, -0.25, -1.0).lerp(Vector3(-0.08, 0.12, -1.0), cw)
+		else:
+			# Kopf oben rechts, Stielende unten links: beide Hände bleiben in Reichweite
+			tg = Vector3(0.12, 0.1, -0.28).lerp(Vector3(0.12, 0.14, -0.3), cw)
+			td = Vector3(0.45, 0.7, -0.45).lerp(Vector3(0.35, 0.8, -0.45), cw)
+		grip = grip.lerp(tg, k2)
+		sdir = sdir.lerp(td, k2)
 	var hand_f := 3.0  # Federfrequenz der Hände (niedrig = träge, schwer)
 
 	match action:
@@ -1013,7 +1109,10 @@ func tick(delta: float) -> void:
 	# Waffe (rechte Hand)
 	var drawn_sword := Transform3D(_basis_from(-d.normalized(), f.normalized()), g)
 	var stow_sword: Transform3D = to_chest * _sword_stow_xf()
-	sword.transform = _carry(stow_sword, drawn_sword, _out(weapon_p), stow_sword.origin + stow_sword.basis.z * weapon_length * 0.9)
+	var draw_ctrl := stow_sword.origin + stow_sword.basis.z * weapon_length * 0.9
+	if weapon_def and weapon_def.stow == &"back":
+		draw_ctrl = Vector3(0.32, 0.72, 0.12)  # über die rechte Schulter nach vorn ziehen
+	sword.transform = _carry(stow_sword, drawn_sword, _out(weapon_p), draw_ctrl)
 	var hand_r: Vector3 = rest_r_w.lerp(sword.global_transform * Vector3(0, 0, 0.02), _reach(weapon_p))
 
 	# Schild: am Arm oder auf dem Rücken
@@ -1054,6 +1153,26 @@ func tick(delta: float) -> void:
 		if off_item == &"light":
 			hand_l = rest_l_w.lerp(offhand.global_position, _reach(lp_t))
 
+	# Zweithand-Dolch: in der linken Hand (folgt der Schild-Pose), sonst hinten am Gürtel
+	if off_dagger:
+		var dp_t := off_p if off_item == &"dagger" else 0.0
+		off_jab = move_toward(off_jab, 0.0, delta * 5.0)
+		var jab := sin(clampf(1.0 - off_jab, 0.0, 1.0) * PI) if off_jab > 0.0 else 0.0
+		var dpos := sp + Vector3(0.06, 0.02, -0.06) + Vector3(0.1, 0.05, -0.3) * jab
+		var ddir := (sf + Vector3(0.25, 0.9, 0.0)).normalized().lerp(Vector3(0.15, 0.1, -1.0).normalized(), jab).normalized()
+		var held_d := Transform3D(_basis_from(-ddir, Vector3(1, 0, 0)), dpos)
+		var stow_d: Transform3D = to_chest * _off_dagger_stow_xf()
+		off_dagger.transform = _carry(stow_d, held_d, _out(dp_t), Vector3(-0.35, -0.05, 0.25))
+		if off_item == &"dagger":
+			hand_l = rest_l_w.lerp(off_dagger.global_transform * Vector3(0, 0, 0.03), _reach(dp_t))
+	# Beidhändig: linke Hand greift den Schaft hinter der rechten
+	var two_t := 1.0 if two_hand and off_item == &"" and action != &"roll" and weapon_p >= 1.6 and weapon_def != null else 0.0
+	_two_w = move_toward(_two_w, two_t, delta * 4.0)
+	if _two_w > 0.0:
+		var shaft_pt: Vector3 = sword.global_transform * Vector3(0, 0, weapon_def.two_hand_offset)
+		var k := _two_w * _two_w * (3.0 - 2.0 * _two_w)
+		hand_l = hand_l.lerp(shaft_pt, k)
+
 	# Klettern/Hochziehen: Hände an Wand bzw. Kante
 	if hand_ovr > 0.0:
 		hand_l = hand_l.lerp(global_transform * hand_l_local, hand_ovr)
@@ -1066,7 +1185,7 @@ func tick(delta: float) -> void:
 	var pole_l := Vector3(-0.8, -1.0, 0.4)
 	var free_r := 1.0 - _reach(weapon_p)
 	pole_r = pole_r.lerp(Vector3(0.35, -0.4, 1.0), free_r)  # freier Arm: Ellbogen nach hinten
-	if off_item == &"":
+	if off_item == &"" and _two_w < 0.5:
 		pole_l = Vector3(-0.35, -0.4, 1.0)
 	if hand_ovr > 0.0:
 		pole_r = pole_r.lerp(Vector3(0.9, -1.0, 0.2), hand_ovr)
@@ -1239,6 +1358,8 @@ func _update_draw(delta: float) -> void:
 	if tgt == &"shield" and not has_shield:
 		tgt = &""
 	if tgt == &"light" and _light_kind == &"":
+		tgt = &""
+	if tgt == &"dagger" and not has_off_dagger:
 		tgt = &""
 	var rate := delta * 2.0 / 0.6 * draw_speed
 	if off_item != tgt:

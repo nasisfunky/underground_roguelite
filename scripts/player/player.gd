@@ -109,6 +109,20 @@ var body: ShadowBody
 ## Herkunft der Spielfigur (Ausrüstung im Stil ihrer Kaverne)
 var culture := "kiln"
 var abilities: Array = []  # 9 Plätze, Ability oder null
+## Waffe und Zweithand-Teil (Schild oder Dolch; Licht kommt per X dazu)
+var weapon: WeaponDef = WeaponDef.make(&"sword")
+var offhand_choice: StringName = &"shield"  ## &"shield", &"dagger" oder &""
+## Kombo-Kette: Linksklick spielt die Bausteine der Reihe nach ab (leere Plätze werden übersprungen)
+const CHAIN_SLOTS := 5
+var combo_chain: Array[StringName] = []
+var combo_pool: Array[StringName] = []  ## gefundene Bausteine (Prototyp: alle)
+var chain_reset := 1.4  ## s ohne Angriff, bis die Kette wieder vorn beginnt
+var _module: ComboModule  ## laufender Baustein (null = Stich auf der mittleren Maustaste)
+var _chain_i := 0  ## nächster Platz in der Kette
+var _chain_idle := 99.0
+var _hit_i := 0  ## nächster Treffer des laufenden Bausteins
+var _off_jab_t := -1.0  ## Zweithand-Dolch sticht kurz nach dem Treffer nach
+var _chain_pos := -1  ## Platz des laufenden Bausteins (fürs HUD)
 
 var state: State = State.MOVE
 var state_t := 0.0
@@ -207,6 +221,8 @@ func _ready() -> void:
 	abilities.resize(9)
 	abilities[0] = HeavyStrike.new()
 	abilities[1] = ShieldBash.new()
+	combo_pool = ComboModules.all_ids()
+	combo_chain.assign(ComboModules.DEFAULT_CHAIN)
 	Game.register_player(self)
 
 
@@ -221,6 +237,7 @@ func _build_body() -> void:
 	body.build()
 	add_child(body)
 	body.rotation.y = facing_yaw
+	body.set_weapon(weapon)
 	body.set_equipment(weapon_out, _off_wish())
 
 
@@ -273,7 +290,46 @@ func is_invulnerable() -> bool:
 func _off_wish() -> StringName:
 	if light_out:
 		return &"light"
-	return &"shield" if weapon_out else &""
+	if not weapon_out or not weapon.allows_offhand():
+		return &""
+	return offhand_choice
+
+
+## Waffe wechseln (Kombo-Menü im Testlevel). Bausteine, die nur mit der alten Waffe gingen, bleiben in der Kette,
+## werden aber übersprungen, bis man wieder eine passende Waffe führt.
+func set_weapon(weapon_id: StringName) -> void:
+	weapon = WeaponDef.make(weapon_id)
+	_cancel_swing()
+	body.set_weapon(weapon)
+	body.set_equipment(weapon_out, _off_wish())
+
+
+## Zweithand wählen: &"shield", &"dagger" oder &"" (frei -> Vielseitig-Waffen beidhändig).
+func set_offhand(item: StringName) -> void:
+	offhand_choice = item
+	_cancel_swing()
+	body.set_equipment(weapon_out, _off_wish())
+
+
+func set_chain_slot(i: int, module_id: StringName) -> void:
+	while combo_chain.size() < CHAIN_SLOTS:
+		combo_chain.append(&"")
+	combo_chain[i] = module_id
+	_chain_i = 0
+
+
+## Platz des Bausteins, der beim nächsten Klick kommt (-1 = Kette leer).
+func next_chain_slot() -> int:
+	var start := _chain_i if _chain_idle < chain_reset or _swing_t >= 0.0 else 0
+	for k in CHAIN_SLOTS:
+		var i := (start + k) % CHAIN_SLOTS
+		if i < combo_chain.size() and combo_chain[i] != &"" and ComboModules.usable(combo_chain[i], weapon):
+			return i
+	return -1
+
+
+func current_chain_slot() -> int:
+	return _chain_pos if _swing_t >= 0.0 and _module else -1
 
 
 func _apply_equipment() -> void:
@@ -427,6 +483,11 @@ func _tick_timers(delta: float) -> void:
 		_coyote -= delta
 	if _swing_t < 0.0:
 		_since_swing += delta
+		_chain_idle += delta
+	if _off_jab_t >= 0.0:
+		_off_jab_t -= delta
+		if _off_jab_t < 0.0:
+			_offhand_jab()
 	for a in abilities:
 		if a:
 			a.cooldown_left = maxf(a.cooldown_left - delta, 0.0)
@@ -525,6 +586,8 @@ func _state_move(delta: float) -> void:
 	var want_vel := dir * spd
 	if _swing_t >= 0.0:
 		want_vel = dir * spd * attack_move_mult + forward() * _lunge_speed()
+		if _module:
+			want_vel += _module.extra_velocity(self, _swing_t / swing_duration)
 	_horizontal_move(want_vel, delta)
 
 	# Klettern: gegen eine Kletterfläche laufen (Gitter, Flechten)
@@ -997,6 +1060,14 @@ func _start_attack(kind: int) -> void:
 	_queued_attack = 0
 	_queued_t = 0.0
 	_blocking = false
+	_module = null
+	_hit_i = 0
+	if kind == 1:
+		var slot := next_chain_slot()
+		if slot >= 0:
+			_start_module(slot)
+			return
+	combo_window = 0.68
 	if kind == 2:
 		_swing_index = 3
 	elif _swing_t >= 0.0 and _swing_index == 0:
@@ -1017,10 +1088,34 @@ func _start_attack(kind: int) -> void:
 	swing_hit_at = c.hit
 
 
+## Baustein aus der Kette starten.
+func _start_module(slot: int) -> void:
+	var m := ComboModules.make(combo_chain[slot])
+	_module = m
+	_chain_pos = slot
+	_chain_i = (slot + 1) % CHAIN_SLOTS
+	_chain_idle = 0.0
+	_swing_kind = 1
+	_swing_t = 0.0
+	_swing_hit_done = false
+	_since_swing = 0.0
+	_swing_yaw = camera_yaw()
+	m.setup(self)
+	swing_duration = m.duration
+	swing_hit_at = m.hits[0]
+	combo_window = m.window
+	_swing_index = maxi(AnimLibrary.CLIPS.find(m.clip), 0)
+	_spend_stamina(m.cost * weapon.cost)
+	facing_yaw = lerp_angle(facing_yaw, _swing_yaw, 0.5)
+	m.begin(self)
+
+
 ## Kurzer Vorwärtsschub in den Treffer hinein (Gewicht nach vorn verlagern).
 func _lunge_speed() -> float:
 	if _swing_t < 0.0:
 		return 0.0
+	if _module:
+		return _module.move_speed(self, _swing_t / swing_duration)
 	var t := _swing_t / swing_duration
 	var a := swing_hit_at - 0.16
 	if t < a or t > swing_hit_at + 0.04:
@@ -1033,6 +1128,7 @@ func _cancel_swing() -> void:
 	if _swing_t >= 0.0:
 		_swing_t = -1.0
 		_since_swing = 10.0
+		_module = null
 
 
 func _update_swing(delta: float) -> void:
@@ -1046,19 +1142,27 @@ func _update_swing(delta: float) -> void:
 	_swing_t += delta
 	var t := _swing_t / swing_duration
 	# in der Ausholphase zur Kamerarichtung drehen, danach ist die Richtung festgelegt
-	if t < swing_hit_at:
+	if t < swing_hit_at and not (_module and _module is ComboModules.Slip):
 		facing_yaw = lerp_angle(facing_yaw, _swing_yaw, 1.0 - exp(-16.0 * delta))
+	if _module:
+		while _hit_i < _module.hits.size() and t >= _module.hits[_hit_i]:
+			_module.strike(self, _hit_i)
+			_hit_i += 1
+			if body.off_item == &"dagger" and body.off_p >= 2.0 and _module.body_action == &"swing":
+				_off_jab_t = 0.13
+				body.off_jab = 1.0
+		_swing_hit_done = _hit_i >= _module.hits.size()
 	if not _swing_hit_done and t >= swing_hit_at:
 		_swing_hit_done = true
 		var info := DamageInfo.new()
 		info.source = self
 		if _swing_kind == 2:
-			info.amount = swing_damage * thrust_damage_mult * randf_range(0.95, 1.05)
+			info.amount = swing_damage * thrust_damage_mult * weapon.eff_damage(body.off_item) * randf_range(0.95, 1.05)
 			info.knockback = 2.2
 			info.poise_damage = 14.0
 			info.hitstop = 0.08
 			info.shake = 0.16
-			hit_cone(melee_range + thrust_reach_bonus, thrust_arc_deg, info)
+			hit_cone(melee_range + thrust_reach_bonus + weapon.eff_reach(body.off_item), thrust_arc_deg, info)
 		else:
 			info.amount = swing_damage * randf_range(0.9, 1.1)
 			info.knockback = 1.5
@@ -1068,6 +1172,7 @@ func _update_swing(delta: float) -> void:
 			hit_cone(melee_range + 0.3, swing_arc_deg, info)
 	if t >= 1.0:
 		_swing_t = -1.0
+		_module = null
 
 
 func _deal_damage(victim: Node, info: DamageInfo) -> int:
@@ -1136,6 +1241,90 @@ func hit_cone(reach: float, arc_deg: float, info: DamageInfo) -> int:
 		if _deal_damage(e, info.duplicate_info()) == DamageInfo.Result.HIT:
 			count += 1
 	return count
+
+
+## Gegner im Kegel vor dem Spieler (nach Abstand sortiert). `dir` = Mittelachse (Standard: Blickrichtung).
+func targets_in_cone(reach: float, arc_deg: float, only_nearest := false, dir := Vector3.ZERO) -> Array[Enemy]:
+	var fwd := forward() if dir == Vector3.ZERO else dir
+	var found: Array[Enemy] = []
+	for n in get_tree().get_nodes_in_group("enemies"):
+		var e := n as Enemy
+		if e == null or e.is_dead():
+			continue
+		var to: Vector3 = e.global_position - global_position
+		if absf(to.y) > 2.0:
+			continue
+		to.y = 0.0
+		if to.length() > reach + e.radius:
+			continue
+		if to.length() > 0.5 and rad_to_deg(fwd.angle_to(to.normalized())) > arc_deg:
+			continue
+		found.append(e)
+	found.sort_custom(func(a: Enemy, b: Enemy): return a.global_position.distance_squared_to(global_position) < b.global_position.distance_squared_to(global_position))
+	if only_nearest and found.size() > 1:
+		found.resize(1)
+	return found
+
+
+## Schadenswerte eines Bausteins mit der aktuellen Waffe.
+func module_info(m: ComboModule) -> DamageInfo:
+	var info := DamageInfo.new()
+	info.source = self
+	info.amount = m.damage * weapon.eff_damage(body.off_item) * randf_range(0.92, 1.08)
+	info.knockback = m.knockback
+	info.poise_damage = m.poise * weapon.poise
+	info.hitstop = m.hitstop
+	info.shake = m.shake * (1.4 if weapon.grip == &"2h" else 1.0)
+	return info
+
+
+func camera_forward() -> Vector3:
+	return Vector3.FORWARD.rotated(Vector3.UP, camera_yaw())
+
+
+func time_since_block() -> float:
+	return 0.0 if _blocking else _block_released_t
+
+
+func face_toward(pos: Vector3) -> void:
+	var to := pos - global_position
+	if Vector2(to.x, to.z).length() > 0.05:
+		facing_yaw = atan2(-to.x, -to.z)
+		_swing_yaw = facing_yaw
+
+
+## Zweithand-Dolch sticht nach: kleiner Zusatztreffer ohne Reaktionen.
+func _offhand_jab() -> void:
+	var info := DamageInfo.new()
+	info.source = self
+	info.amount = swing_damage * 0.35 * randf_range(0.9, 1.1)
+	info.knockback = 0.3
+	info.poise_damage = 3.0
+	info.hitstop = 0.03
+	info.shake = 0.05
+	for e in targets_in_cone(melee_range + 0.1, 60.0):
+		_deal_damage(e, info.duplicate_info())
+
+
+## Schattenranke (Shadow Hook): Flammenstrang von der linken Hand zum Ziel.
+func spawn_tendril(to: Vector3, hit: bool) -> void:
+	var from := body.hand_position(true)
+	var t := Tendril.new()
+	get_tree().current_scene.add_child(t)
+	t.setup(from, to, hit, self)
+
+
+## Kurzer Lichtblitz (Kindle).
+func flash_light(at: Vector3, color: Color, energy: float) -> void:
+	var l := OmniLight3D.new()
+	l.light_color = color
+	l.light_energy = energy
+	l.omni_range = 5.0
+	get_tree().current_scene.add_child(l)
+	l.global_position = at
+	var tw := l.create_tween()
+	tw.tween_property(l, "light_energy", 0.0, 0.45)
+	tw.tween_callback(l.queue_free)
 
 
 # ------------------------------------------------------------------
@@ -1285,6 +1474,7 @@ func _update_body(delta: float) -> void:
 	body.sprint = move_toward(body.sprint, 1.0 if sprinting and state == State.MOVE else 0.0, delta * 4.0)
 	body.vertical_velocity = velocity.y
 	body.block_amount = move_toward(body.block_amount, 1.0 if _blocking else 0.0, delta * 9.0)
+	body.two_hand = weapon.two_handed(body.off_item) and weapon_out
 	# Kampfhaltung, sobald ein anvisiertes Ziel in Reichweite ist
 	# Kampfhaltung: Gegner in der Nähe oder gerade im Kampf (Hieb/Deckung)
 	var engaged: bool = (_nearby != null and is_instance_valid(_nearby)) or _swing_t >= 0.0 or _since_swing < 1.5
@@ -1320,7 +1510,10 @@ func _update_body(delta: float) -> void:
 		State.ABILITY:
 			_ability.animate(self, body, state_t)
 		_:
-			if _swing_t >= 0.0:
+			if _swing_t >= 0.0 and _module and _module.body_action != &"swing":
+				body.action = _module.body_action
+				body.action_t = _swing_t / swing_duration
+			elif _swing_t >= 0.0:
 				body.action = &"swing"
 				body.swing_index = _swing_index
 				body.action_t = _swing_t / swing_duration

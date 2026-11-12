@@ -23,7 +23,8 @@ Alle Texte im Spiel sind Englisch, Code-Kommentare und Doku Deutsch.
 |---|---|
 | WASD | laufen (relativ zur Kamera, der Charakter dreht sich in Laufrichtung) |
 | Maus | Kamera drehen (Cursor ist im Spiel versteckt) |
-| Linksklick | Hieb. Im Rhythmus nachklicken = Kombo Vorhand → Rückhand |
+| Linksklick | spielt die eigene Kombo-Kette ab (im Rhythmus nachklicken = nächster Baustein) |
+| C | Kombo-Baukasten: Kette zusammenstellen, Waffe und Zweithand wählen (pausiert das Spiel) |
 | Mittlere Maustaste | Alternativangriff der Waffe, beim Schwert ein Stich (mehr Reichweite und Schaden, schmal) |
 | Mausrad | Zoom |
 | Leertaste | springen (halten = höher, antippen = kleiner Hüpfer) |
@@ -49,6 +50,25 @@ Gegen eine niedrige Kante schwimmen (oder Leertaste) = rausklettern. Waffen und 
 und Schwimmen weggesteckt, das Licht kommt danach wieder.
 
 **Stürze** ab 3,2 m: die Figur rollt sich beim Aufkommen ab, nach vorn, oder nach hinten, wenn vorn kein Platz ist.
+
+## Kombo-Baukasten (Prototyp)
+
+Linksklick spielt eine Kette aus bis zu 5 Bausteinen von links nach rechts ab (leere Plätze und Bausteine
+anderer Waffen werden übersprungen; nach 1,4 s ohne Angriff beginnt die Kette vorn). Es gibt keine richtige
+oder falsche Reihenfolge: Bausteine **erzeugen** Zustände am Gegner oder ändern den Abstand, und jeder Baustein
+**reagiert** auf das, was gerade da ist. Zustände halten einige Sekunden, auch wenn andere Bausteine dazwischen kommen.
+
+- **Reeling** (taumelt, kann nicht angreifen), **Bound** (Klinge gebunden, kann nicht angreifen),
+  **Mark** (Lichtmal, bis 3 Stapel). Über dem Gegner als Text, Ring und kreisende Lichtsplitter angezeigt.
+- Allgemein: Cut, Backcut, Low Sweep, Shove, Shadow Hook, Bind, Brand Lunge, Kindle (Finisher), Sever (Finisher).
+- Waffeneigen: Riposte (Klinge), Impale + Haft Sweep (Speer), Cleave + Beard Hook (Zweihandaxt), Flurry + Slip (Dolch).
+- Code: `scripts/combat/combo_module.gd` (Basis), `scripts/combat/combo_modules.gd` (alle Bausteine),
+  Zustände und erzwungene Bewegung in `scripts/enemies/enemy.gd`, Menü `scripts/ui/combo_menu.gd`.
+
+**Waffen** (`scripts/combat/weapon_def.gd`): Kulturklinge; Speer (einhändig mit Schild/Dolch/Licht, beidhändig mit freier
+linker Hand: mehr Reichweite und Schaden); Zweihandaxt (immer beidhändig, mit Licht einhändig; langsam, schwer);
+Dolch (schnell, kurz). Der Dolch geht auch in der Zweithand statt Schild und sticht nach jedem Hieb nach.
+Speer und Axt hängen auf dem Rücken. Im Wardens' Ring steht eine Puppengruppe für Bausteine gegen mehrere Ziele.
 
 Es gibt **kein Anvisieren**: Angriffe gehen in Kamerarichtung und treffen alles im Bogen davor.
 Jeder Hieb kostet Ausdauer. Während eines Hiebs läuft der Charakter kaum weiter und
@@ -175,6 +195,13 @@ automatisches Wegstecken), Licht vorhalten und Schild-Tausch, natürliche Armbew
 Rollen in alle Richtungen (Richtung, Blick, kein Eintauchen in den Boden), Abrollen nach Stürzen,
 Klettern (Tempo, Ausdauer, Rand, Absprung, Hochziehen, Absturz bei leerer Ausdauer), Schwimmen ohne Tauchen,
 Reinspringen, Rausklettern und Rauswaten.
+
+```
+godot --headless --fixed-fps 60 --path . tools/combat_test.tscn
+```
+Prüft die Kombo-Kette (Reihenfolge, Überspringen, Zurücksetzen, Ausdauer), alle Zustände und Reaktionen
+(Wrench, Pinned, Throw, Snap, Pursuit, Spread, Kindle, Disarm), Ziehen/Stoßen, einen gebundenen Hollowed,
+die Waffen (Reichweite, beidhändiger Griff, Zweithand-Dolch, Axt mit Licht) und das Menü.
 
 `tools/move_strips.tscn -- <ordner>` (mit Grafik) speichert Filmstreifen aller Bewegungsabläufe zum Begutachten.
 

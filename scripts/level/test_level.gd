@@ -148,6 +148,12 @@ func _build_room_training() -> void:
 		st.rotation.y = -a + _rng.randf_range(-0.1, 0.1)
 	_fire_bowl(Vector3(-8.5, 0, -27.5), 0.9)
 	_fire_bowl(Vector3(8.5, 0, -40.5), 0.9)
+	# Puppengruppe für Bausteine gegen mehrere Ziele (Sweep verteilt Lichtmale, Kindle flammt auf Nachbarn über)
+	for pos in [Vector3(-7.4, 0.05, -32.2), Vector3(-8.9, 0.05, -31.5), Vector3(-8.3, 0.05, -33.6)]:
+		var gd := TrainingDummy.new()
+		gd.position = pos
+		gd.rotation.y = PI * 0.5
+		add_child(gd)
 	_weapon_rack(Vector3(10.6, 0, -27.0), -PI / 2)
 	_gear_pile(Vector3(10.2, 0, -39.4), -1.2, 1)
 	_gear_pile(Vector3(-10.4, 0, -38.5), 0.8, 0)

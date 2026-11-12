@@ -79,6 +79,7 @@ func _setup_input() -> void:
 	_key_label("toggle_light", KEY_X)
 	for i in range(1, 10):
 		_key("ability_%d" % i, [KEY_0 + i])
+	_key("combo_menu", [KEY_C])
 	_key("toggle_help", [KEY_F1])
 	_key("cycle_culture", [KEY_F2])
 	_key("toggle_debug", [KEY_F3])

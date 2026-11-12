@@ -44,7 +44,7 @@ func _ready() -> void:
 	cam.fov = 40.0
 	level.add_child(cam)
 	cam.make_current()
-	var all := ["roll_fwd", "roll_dirs", "draw_light", "walk_sprint", "climb", "swim", "jump_in", "fall_rolls"]
+	var all := ["roll_fwd", "roll_dirs", "draw_light", "walk_sprint", "climb", "swim", "jump_in", "fall_rolls", "weapons", "modules", "hook"]
 	for n in all:
 		if only.is_empty() or n in only:
 			await call("_s_" + n)
@@ -52,6 +52,85 @@ func _ready() -> void:
 
 
 # --- Abläufe ---
+
+## Waffen: gezogen (Kampfhaltung) und weggesteckt, je Waffe/Zweithand
+func _s_weapons() -> void:
+	var imgs: Array[Image] = []
+	for combo in [[&"spear", &"shield"], [&"spear", &""], [&"greataxe", &""], [&"dagger", &"dagger"], [&"sword", &"dagger"]]:
+		p.set_weapon(combo[0])
+		p.set_offhand(combo[1])
+		_tp(C + Vector3(-6, 0.1, 10.5), 0.0)
+		if not p.weapon_out:
+			p.input._draw = true
+		p._manual_draw = true
+		cam_off = Vector3(2.6, 0.7, -1.8)
+		await _frames(70)
+		imgs.append_array(await _grab(1, 1))
+		cam_off = Vector3(-1.6, 0.8, 2.6)
+		imgs.append_array(await _grab(1, 1))
+		p.input._draw = true
+		await _frames(60)
+		imgs.append_array(await _grab(1, 1))
+		p.input._draw = true
+		await _frames(50)
+	p.set_weapon(&"sword")
+	p.set_offhand(&"shield")
+	_save("weapons", imgs, 6)
+
+
+## Bausteine mit eigener Animation: je 8 Bilder über die Dauer
+func _s_modules() -> void:
+	var d := TrainingDummy.new()
+	d.position = C + Vector3(-6, 0.05, 8.0)
+	level.add_child(d)
+	for spec in [[&"sweep", &"sword", &"shield"], [&"hook", &"sword", &"shield"], [&"bind", &"sword", &"shield"], [&"sever", &"sword", &"shield"],
+			[&"beard_hook", &"greataxe", &""], [&"flurry", &"dagger", &"dagger"], [&"impale", &"spear", &""], [&"haft_sweep", &"spear", &""], [&"cleave", &"greataxe", &""]]:
+		p.set_weapon(spec[1])
+		p.set_offhand(spec[2])
+		_tp(C + Vector3(-6, 0.1, 10.5), 0.0)
+		d.global_position = C + Vector3(-6, 0.05, 8.0)
+		d.status.clear()
+		d.reset_physics_interpolation()
+		if not p.weapon_out:
+			p.input._draw = true
+		p._manual_draw = true
+		cam_off = Vector3(3.0, 0.8, -0.6)
+		await _frames(60)
+		p.combo_chain.assign([spec[0], &"", &"", &"", &""])
+		p._chain_idle = 99.0
+		p._chain_i = 0
+		p._set_stamina(p.max_stamina)
+		p.input._attack = 1
+		await _frames(2)
+		var dur := p.swing_duration
+		var imgs := await _grab(maxi(1, int(dur * 60.0 / 9.0)), 9)
+		_save("mod_" + str(spec[0]), imgs, 9)
+		await _frames(40)
+	p.set_weapon(&"sword")
+	p.set_offhand(&"shield")
+	d.queue_free()
+
+
+## Schattenranke: Ziel 6 m entfernt wird herangezogen
+func _s_hook() -> void:
+	var d := TrainingDummy.new()
+	d.position = C + Vector3(-6, 0.05, 4.5)
+	level.add_child(d)
+	_tp(C + Vector3(-6, 0.1, 10.5), 0.0)
+	d.global_position = C + Vector3(-6, 0.05, 4.5)
+	d.reset_physics_interpolation()
+	if not p.weapon_out:
+		p.input._draw = true
+	cam_off = Vector3(5.5, 1.6, -2.5)
+	cam_look_h = 0.9
+	await _frames(60)
+	p.combo_chain.assign([&"hook", &"", &"", &"", &""])
+	p._chain_idle = 99.0
+	p._set_stamina(p.max_stamina)
+	p.input._attack = 1
+	await _frames(14)
+	await _record("hook", 2, 10)
+	d.queue_free()
 
 func _s_roll_fwd() -> void:
 	_tp(C + Vector3(-4, 0.1, 8), PI * 0.5)
