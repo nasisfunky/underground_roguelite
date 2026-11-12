@@ -124,8 +124,7 @@ class Shove extends ComboModule:
 		desc = "Shoulder or shield into them: pushes the target 3 m away."
 		creates = "Distance, Reeling (short)"
 		reacts = "Bound: Throw, hurled 5.5 m and Reeling long"
-		clip = ""
-		body_action = &"bash"
+		clip = "shove"
 		damage = 4.0
 		arc = 60.0
 		reach = 2.5
@@ -134,14 +133,8 @@ class Shove extends ComboModule:
 		knockback = 0.0
 		poise = 25.0
 		lunge = 4.0
-		hits = [0.3]
 		hitstop = 0.08
 		shake = 0.25
-
-	func setup(p: Player) -> void:
-		super.setup(p)
-		duration = 0.82
-		window = 0.58
 
 	func react(_p: Player, e: Enemy, info: DamageInfo) -> void:
 		if e.has_status(&"bound"):

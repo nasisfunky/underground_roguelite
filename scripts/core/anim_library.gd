@@ -9,7 +9,52 @@ extends RefCounted
 ## Erster und letzter Key (t=0 und t=1) sind immer die aktuelle Grundhaltung und stehen nicht in der Datei.
 
 const DIR := "res://data/anims/"
-const CLIPS := ["swing_0", "swing_1", "heavy", "thrust", "sweep", "hook", "bind", "sever", "rake", "flurry"]
+const CLIPS := ["swing_0", "swing_1", "heavy", "thrust", "shove", "sweep", "hook", "bind", "sever", "rake", "flurry"]
+## Zusätzliche Körpersteuerung je Keyframe (Werkstatt). Werte addieren sich zur prozeduralen Pose (0 = unverändert).
+## Winkel in Radiant, step in Metern. In der Datei stehen nur Werte ungleich 0.
+const BODY_FIELDS := ["bank", "hips_turn", "head_yaw", "head_pitch", "step",
+	"leg_l_swing", "leg_l_spread", "leg_l_knee", "leg_r_swing", "leg_r_spread", "leg_r_knee", "elbow_r", "elbow_l"]
+## Waffen, für die es eigene Versionen eines Clips geben kann (Datei <clip>@<waffe>.json)
+const VARIANT_WEAPONS := ["sword", "spear", "greataxe", "dagger"]
+
+
+static func zero_body() -> Array:
+	var a: Array = []
+	a.resize(BODY_FIELDS.size())
+	a.fill(0.0)
+	return a
+
+
+## Name des Clips für eine Waffe: eigene Version "<clip>@<waffe>", falls vorhanden, sonst der allgemeine Clip.
+static func resolve(clip_name: String, weapon_id: String) -> String:
+	var v := clip_name + "@" + weapon_id
+	if _cache.has(v) or FileAccess.file_exists(DIR + v + ".json"):
+		return v
+	return clip_name
+
+
+static func has_variant(clip_name: String, weapon_id: String) -> bool:
+	return resolve(clip_name, weapon_id) != clip_name
+
+
+## Eigene Version für eine Waffe anlegen (Kopie des allgemeinen Clips, nur im Speicher bis gespeichert).
+static func make_variant(clip_name: String, weapon_id: String) -> String:
+	var v := clip_name + "@" + weapon_id
+	if not _cache.has(v):
+		var c := duplicate_clip(clip(clip_name))
+		c.name = v
+		c.label = c.label + " [" + weapon_id + "]"
+		_cache[v] = c
+	return v
+
+
+## Eigene Version löschen (Datei entfernen); danach gilt wieder der allgemeine Clip.
+static func delete_variant(clip_name: String, weapon_id: String) -> void:
+	var v := clip_name + "@" + weapon_id
+	_cache.erase(v)
+	var path := ProjectSettings.globalize_path(DIR + v + ".json")
+	if FileAccess.file_exists(DIR + v + ".json"):
+		DirAccess.remove_absolute(path)
 
 static var _cache := {}
 
@@ -19,6 +64,8 @@ static func clip(clip_name: String) -> Dictionary:
 		return _cache[clip_name]
 	var c := _load_file(clip_name)
 	if c.is_empty():
+		if "@" in clip_name:
+			return clip(clip_name.get_slice("@", 0))  # keine eigene Version: allgemeiner Clip
 		c = builtin(clip_name)
 	_cache[clip_name] = c
 	return c
@@ -73,6 +120,7 @@ static func _from_json(d: Dictionary) -> Dictionary:
 			"drop": float(k.get("drop", 0.0)),
 			"shield": _v(k.get("shield"), Vector3(-0.3, 0.1, -0.3)),
 			"shield_front": _v(k.get("shield_front"), Vector3(-0.35, 0, -1)).normalized(),
+			"body": _body_from(k),
 		})
 	keys.sort_custom(func(a, b): return a.t < b.t)
 	var tr: Array = d.get("trail", [0.32, 0.62])
@@ -86,6 +134,13 @@ static func _from_json(d: Dictionary) -> Dictionary:
 	}
 
 
+static func _body_from(k: Dictionary) -> Array:
+	var b := zero_body()
+	for i in BODY_FIELDS.size():
+		b[i] = float(k.get(BODY_FIELDS[i], 0.0))
+	return b
+
+
 static func _r(x: float) -> float:
 	return snappedf(x, 0.001)
 
@@ -97,9 +152,14 @@ static func _a(v: Vector3) -> Array:
 static func _to_json(c: Dictionary) -> Dictionary:
 	var keys: Array = []
 	for k in c.keys:
-		keys.append({"t": _r(k.t), "grip": _a(k.grip), "dir": _a(k.dir), "flat": _a(k.flat),
+		var kd := {"t": _r(k.t), "grip": _a(k.grip), "dir": _a(k.dir), "flat": _a(k.flat),
 			"twist": _r(k.twist), "lean": _r(k.lean), "drop": _r(k.drop),
-			"shield": _a(k.shield), "shield_front": _a(k.shield_front)})
+			"shield": _a(k.shield), "shield_front": _a(k.shield_front)}
+		var b: Array = k.get("body", [])
+		for i in mini(b.size(), BODY_FIELDS.size()):
+			if absf(b[i]) > 0.0005:
+				kd[BODY_FIELDS[i]] = _r(b[i])
+		keys.append(kd)
 	return {"name": c.name, "label": c.label, "duration": _r(c.duration), "hit": _r(c.hit),
 		"trail": [_r(c.trail.x), _r(c.trail.y)], "keys": keys}
 
@@ -154,6 +214,18 @@ static func builtin(clip_name: String) -> Dictionary:
 				[0.46, [0.12, 0.16, -0.54], [-0.04, 0.02, -1], [0, 1, 0], 0.15, -0.3, 0.12],
 				[0.62, [0.14, 0.15, -0.52], [-0.04, 0.03, -1], [0, 1, 0], 0.12, -0.26, 0.1],
 				[0.82, [0.26, 0.12, -0.36], [-0.12, 0.4, -0.9], [0, 1, 0], 0.0, -0.08, 0.03],
+			]
+		"shove":
+			# Stoßen: Schild/Schulter kräftig nach vorn rammen (vorher prozedural als "bash")
+			d.label = "Shove (combo)"
+			d.duration = 0.82
+			d.hit = 0.27
+			d.trail = [1.1, 1.2]
+			rows = [
+				[0.1, [0.34, -0.14, 0.11], [0.3, 0.4, 0.6], [0, 1, 0], 0.22, -0.19, 0.05, [-0.04, 0.03, -0.5], [0.1, 0.1, -1]],
+				[0.24, [0.34, -0.14, 0.11], [0.3, 0.4, 0.6], [0, 1, 0], 0.35, -0.3, 0.08, [-0.04, 0.03, -0.57], [0.1, 0.1, -1]],
+				[0.38, [0.34, -0.12, 0.08], [0.3, 0.45, 0.55], [0, 1, 0], 0.2, -0.17, 0.05, [-0.04, 0.04, -0.49], [0.1, 0.1, -1]],
+				[0.62, [0.3, 0.0, -0.12], [0.0, 0.5, -0.85], [0, 1, 0], 0.05, -0.05, 0.01, [-0.15, 0.15, -0.38]],
 			]
 		"sweep":
 			# Fegen: tief rechts ausholen, flach und weit nach links durchziehen, in die Knie
@@ -244,8 +316,9 @@ static func builtin(clip_name: String) -> Dictionary:
 	var keys: Array = []
 	for r in rows:
 		var shp: Array = r[7] if r.size() > 7 else [sh.x, sh.y, sh.z]
+		var shfr: Array = r[8] if r.size() > 8 else [shf.x, shf.y, shf.z]
 		keys.append({"t": r[0], "grip": r[1], "dir": r[2], "flat": r[3], "twist": r[4], "lean": r[5], "drop": r[6],
-			"shield": shp, "shield_front": [shf.x, shf.y, shf.z]})
+			"shield": shp, "shield_front": shfr})
 	d.keys = keys
 	var c := _from_json(d)
 	# Sicherheit: Griff und Schildhand bleiben in Armreichweite (sonst reißt die Hand von der Waffe ab)

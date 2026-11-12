@@ -233,7 +233,7 @@ func _test_weapons() -> void:
 	await _phys(70)
 	_check("Speer ohne Zweithand: beidhändig", p.body.two_hand, "")
 	var lh := p.body.hand_position(true)
-	var shaft: Vector3 = p.body.sword.global_transform * Vector3(0, 0, p.weapon.two_hand_offset)
+	var shaft: Vector3 = p.body.sword.global_transform * Vector3(0, 0, p.body.two_hand_offset())
 	_check("Linke Hand am Speerschaft", lh.distance_to(shaft) < 0.18, "%.2f m" % lh.distance_to(shaft))
 	var hp := d.health
 	await _run_module(false)
@@ -265,7 +265,7 @@ func _test_weapons() -> void:
 	await _phys(70)
 	_check("Axt: Zweithand leer, beidhändig", p.body.off_item == &"" and p.body.two_hand, str(p.body.off_item))
 	lh = p.body.hand_position(true)
-	shaft = p.body.sword.global_transform * Vector3(0, 0, p.weapon.two_hand_offset)
+	shaft = p.body.sword.global_transform * Vector3(0, 0, p.body.two_hand_offset())
 	_check("Linke Hand am Axtstiel", lh.distance_to(shaft) < 0.18, "%.2f m" % lh.distance_to(shaft))
 	var m := ComboModules.make(&"cut")
 	m.setup(p)

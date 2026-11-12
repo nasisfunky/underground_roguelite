@@ -42,11 +42,16 @@ static var _gold := Color(1.0, 0.82, 0.42)
 
 ## Vor dem Start: Dauer/Trefferzeit aus dem Clip, skaliert mit dem Tempo der Waffe.
 func setup(p: Player) -> void:
-	var c: Dictionary = AnimLibrary.clip(clip) if clip != "" else {"duration": 0.8, "hit": 0.3}
+	var c: Dictionary = AnimLibrary.clip(clip_for(p)) if clip != "" else {"duration": 0.8, "hit": 0.3}
 	duration = c.duration * p.weapon.eff_speed(p.body.off_item)
 	if hits.is_empty():
 		hits = [c.hit]
 	window = clampf(hits[hits.size() - 1] + 0.24, 0.55, 0.8)
+
+
+## Clip für die aktuelle Waffe (eigene Version "<clip>@<waffe>", falls in der Werkstatt angelegt).
+func clip_for(p: Player) -> String:
+	return AnimLibrary.resolve(clip, String(p.weapon.id))
 
 
 ## Beim Start (nach setup): Ziele wählen, Bewegung planen.

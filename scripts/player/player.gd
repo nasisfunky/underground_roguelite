@@ -123,6 +123,7 @@ var _chain_idle := 99.0
 var _hit_i := 0  ## nächster Treffer des laufenden Bausteins
 var _off_jab_t := -1.0  ## Zweithand-Dolch sticht kurz nach dem Treffer nach
 var _chain_pos := -1  ## Platz des laufenden Bausteins (fürs HUD)
+var _swing_clip := ""  ## Animationsclip des laufenden Schlags (ggf. eigene Version der Waffe)
 
 var state: State = State.MOVE
 var state_t := 0.0
@@ -1083,7 +1084,8 @@ func _start_attack(kind: int) -> void:
 	_spend_stamina(thrust_cost if kind == 2 else swing_cost)
 	_swing_yaw = camera_yaw()
 	# Dauer und Trefferzeitpunkt kommen aus der Animation (Animationswerkstatt)
-	var c: Dictionary = AnimLibrary.clip(AnimLibrary.CLIPS[_swing_index])
+	_swing_clip = AnimLibrary.resolve(AnimLibrary.CLIPS[_swing_index], String(weapon.id))
+	var c: Dictionary = AnimLibrary.clip(_swing_clip)
 	swing_duration = c.duration
 	swing_hit_at = c.hit
 
@@ -1105,6 +1107,7 @@ func _start_module(slot: int) -> void:
 	swing_hit_at = m.hits[0]
 	combo_window = m.window
 	_swing_index = maxi(AnimLibrary.CLIPS.find(m.clip), 0)
+	_swing_clip = m.clip_for(self)
 	_spend_stamina(m.cost * weapon.cost)
 	facing_yaw = lerp_angle(facing_yaw, _swing_yaw, 0.5)
 	m.begin(self)
@@ -1516,6 +1519,7 @@ func _update_body(delta: float) -> void:
 			elif _swing_t >= 0.0:
 				body.action = &"swing"
 				body.swing_index = _swing_index
+				body.swing_clip = _swing_clip
 				body.action_t = _swing_t / swing_duration
 			else:
 				body.action = &""

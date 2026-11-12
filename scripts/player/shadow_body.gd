@@ -176,6 +176,10 @@ var _culture_weapon: Node3D
 var _culture_len := 0.78
 var _custom_weapon: Node3D
 var _two_w := 0.0  ## 0..1, Gewicht des beidhändigen Griffs
+## Animationsclip für die Aktion "swing" (leer = AnimLibrary.CLIPS[swing_index]); z. B. "thrust@spear"
+var swing_clip := ""
+## Werkstatt: Haltung erzwingen (leer = normal). "idle", "walk", "guard" … siehe PoseLibrary
+var _body_ofs: Array = []  ## Körper-Zusätze des laufenden Clips (AnimLibrary.BODY_FIELDS)
 
 ## Ablagen (Hüft- bzw. Brust-Koordinaten)
 const LANTERN_BELT := Vector3(0.21, 0.04, 0.0)  ## rechte Hüfte (links hängt die Waffe)
@@ -446,28 +450,38 @@ func _build_scabbard() -> void:
 
 ## Lage der weggesteckten Waffe (Hüft-Koordinaten): Griff vorn an der linken Hüfte, Klinge nach hinten unten.
 func _sword_stow_xf() -> Transform3D:
-	if weapon_def and weapon_def.stow == &"back":
-		return chest.transform * _back_stow_chest()
-	var dir := Vector3(-0.14, -0.6, 0.79).normalized()
-	if outfit == "rimefall" and (weapon_def == null or weapon_def.culture):
-		dir = Vector3(-0.12, -0.9, 0.42).normalized()  # Axt: Kopf nach unten in der Schlaufe
-	return Transform3D(_basis_from(-dir, Vector3(1, 0, 0)), SWORD_BELT)
+	var st: Dictionary = PoseLibrary.weapon(pose_id()).stow
+	var xf := Transform3D(_basis_from(-(st.dir as Vector3), st.hint), st.pos)
+	if st.get("space", "hips") == "chest":
+		return chest.transform * xf
+	return xf
 
 
-## Stangenwaffen auf dem Rücken (Brust-Koordinaten): Speer schräg, Spitze über der linken Schulter;
-## Axt mit dem Kopf über der rechten Schulter.
-func _back_stow_chest() -> Transform3D:
-	var dir := Vector3(-0.5, 0.85, 0.06).normalized()
-	var pos := Vector3(0.12, -0.04, 0.35)
-	if weapon_def.id == &"greataxe":
-		dir = Vector3(0.36, 0.92, 0.06).normalized()
-		pos = Vector3(-0.12, -0.12, 0.34)
-	return Transform3D(_basis_from(-dir, Vector3(0, 0, 1)), pos)
+## Haltungen dieser Figur in der PoseLibrary: Kulturwaffe = Kultur (kiln/rimefall/glowmire), sonst die Waffe.
+func pose_id() -> String:
+	if weapon_def and not weapon_def.culture:
+		return String(weapon_def.id)
+	return outfit if outfit != "" else "kiln"
 
 
-## Zweithand-Dolch weggesteckt: quer hinten am Gürtel, Griff rechts (Hüft-Koordinaten).
+## Wo die linke Hand beidhändig greift (m hinter der rechten Hand).
+func two_hand_offset() -> float:
+	return float(PoseLibrary.weapon(pose_id()).get("two_hand_offset", 0.0))
+
+
+static func _blend_held(a: Dictionary, b: Dictionary, k: float) -> Dictionary:
+	if k <= 0.0:
+		return a
+	var out := {}
+	for key in a:
+		out[key] = (a[key] as Vector3).lerp(b.get(key, a[key]), k)
+	return out
+
+
+## Zweithand-Dolch weggesteckt: quer hinten am Gürtel (Hüft-Koordinaten, aus PoseLibrary "gear").
 func _off_dagger_stow_xf() -> Transform3D:
-	return Transform3D(_basis_from(Vector3(1.0, 0.25, 0.1).normalized(), Vector3(0, 0, 1)), Vector3(-0.14, 0.02, 0.17))
+	var g: Dictionary = PoseLibrary.gear().dagger_stow
+	return Transform3D(_basis_from(-(g.dir as Vector3), g.hint), g.pos)
 
 
 func _dim_mat() -> StandardMaterial3D:
@@ -761,43 +775,36 @@ func tick(delta: float) -> void:
 	# Hände ohne Waffe während der Rolle (Brust-Koordinaten), sonst null
 	var free_hands: Variant = null
 
-	# --- Waffe / Schild Grundposen ---
-	# Waffe gezogen, ohne Kampfhaltung: locker gehalten, Arm leicht gebeugt (in Reichweite der Schulter)
-	var grip := Vector3(0.27, -0.15, -0.16).lerp(Vector3(0.30, -0.16, 0.0), minf(s, 1.0) * wm)
-	var sdir := Vector3(0.12, -0.32, -1.0).lerp(Vector3(0.25, -0.75, 0.55), minf(s, 1.0) * wm)
-	var sflat := Vector3(1, 0, 0)
-	grip.z += sin(_phase) * 0.07 * minf(s, 1.0) * wm
+	# --- Waffe / Schild Grundposen (aus PoseLibrary, bearbeitbar in der Animationswerkstatt) ---
+	var pw := PoseLibrary.weapon(pose_id())
+	var k2 := _two_w * _two_w * (3.0 - 2.0 * _two_w)
+	var ip := _blend_held(pw.idle, pw.idle_2h, k2)
+	var wpz := _blend_held(pw.walk, pw.idle_2h, k2)
+	var gp := _blend_held(pw.guard, pw.guard_2h, k2)
+	var mv := minf(s, 1.0) * wm
+	# Waffe gezogen, ohne Kampfhaltung: Haltung im Stehen bzw. beim Gehen
+	var grip := _unscale(ip.grip).lerp(_unscale(wpz.grip), mv)
+	var sdir: Vector3 = (ip.dir as Vector3).lerp(wpz.dir, mv)
+	var sflat: Vector3 = (ip.flat as Vector3).lerp(wpz.flat, mv)
+	grip.z += sin(_phase) * 0.07 * mv
 	grip.y += breathe * 0.006 * (1.0 - wm)
-	var sh_pos := Vector3(-0.28, -0.18, -0.12)
-	var sh_front := Vector3(-0.5, 0.0, -0.85)
-	sh_pos.z += sin(_phase + PI) * 0.05 * minf(s, 1.0) * wm
+	var sh_pos := _unscale(ip.off).lerp(_unscale(wpz.off), mv)
+	var sh_front: Vector3 = (ip.off_front as Vector3).lerp(wpz.off_front, mv)
+	sh_pos.z += sin(_phase + PI) * 0.05 * mv
 	# Kampfhaltung: Schild vor der Brust, Klinge schräg nach vorn oben gerichtet
 	if cw > 0.0:
 		var bob_g := Vector3(0, sin(_phase * 2.0) * 0.015 * wm + breathe * 0.008, 0)
-		grip = grip.lerp(GUARD_GRIP + bob_g, cw)
-		sdir = sdir.lerp(GUARD_DIR, cw)
-		sflat = sflat.lerp(Vector3(1, 0, 0.3), cw)
-		sh_pos = sh_pos.lerp(GUARD_SHIELD + bob_g, cw)
-		sh_front = sh_front.lerp(GUARD_SHIELD_FRONT, cw)
-	# Beidhändig: Speer mit der Spitze nach vorn (Kampf) bzw. schräg gesenkt, Axt quer vor dem Körper
-	if _two_w > 0.0 and weapon_def:
-		var k2 := _two_w * _two_w * (3.0 - 2.0 * _two_w)
-		var tg: Vector3
-		var td: Vector3
-		if weapon_def.id == &"spear":
-			tg = Vector3(0.24, -0.08, -0.12).lerp(Vector3(0.22, 0.0, -0.2), cw)
-			td = Vector3(-0.05, -0.25, -1.0).lerp(Vector3(-0.08, 0.12, -1.0), cw)
-		else:
-			# Kopf oben rechts, Stielende unten links: beide Hände bleiben in Reichweite
-			tg = Vector3(0.12, 0.1, -0.28).lerp(Vector3(0.12, 0.14, -0.3), cw)
-			td = Vector3(0.45, 0.7, -0.45).lerp(Vector3(0.35, 0.8, -0.45), cw)
-		grip = grip.lerp(tg, k2)
-		sdir = sdir.lerp(td, k2)
+		grip = grip.lerp(_unscale(gp.grip) + bob_g, cw)
+		sdir = sdir.lerp(gp.dir, cw)
+		sflat = sflat.lerp(gp.flat, cw)
+		sh_pos = sh_pos.lerp(_unscale(gp.off) + bob_g, cw)
+		sh_front = sh_front.lerp(gp.off_front, cw)
 	var hand_f := 3.0  # Federfrequenz der Hände (niedrig = träge, schwer)
 
 	match action:
 		&"swing":
 			var k := _swing_pose(swing_index, action_t, [grip, sdir, sflat, sh_pos, sh_front])
+			_body_ofs = k[9]
 			swing_sample = k
 			grip = k[0]
 			sdir = k[1]
@@ -999,6 +1006,16 @@ func tick(delta: float) -> void:
 			sh_pos = Vector3(-0.4, -0.3, 0.0)
 	if action != &"swing":
 		_trail.emitting = false
+		_body_ofs = []
+	# Körper-Zusätze aus dem Clip (Werkstatt: Neigung, Hüfte, Kopf, Beine, Ellbogen)
+	var bo: Array = _body_ofs
+	if bo.size() == AnimLibrary.BODY_FIELDS.size():
+		bank += bo[0]
+		hips_z += bo[4]
+		hl += Vector3(bo[5], 0.0, -bo[6])
+		kl -= bo[7]
+		hr += Vector3(bo[8], 0.0, bo[9])
+		kr -= bo[10]
 
 	if block_amount > 0.0 and has_shield and off_item == &"shield" and off_p >= 1.5:
 		var b := block_amount * block_amount * (3.0 - 2.0 * block_amount)
@@ -1062,6 +1079,8 @@ func tick(delta: float) -> void:
 	rig.transform = Transform3D(rb, Vector3(0, ry - RIG_Y + pv, 0) + rb * Vector3(0, RIG_Y - pv, 0))
 	hips.position.y = HIPS_Y + hips_y - dr
 	hips.position.z = _u(_sp_hz, delta, hips_z)
+	if bo.size() == AnimLibrary.BODY_FIELDS.size():
+		lower_yaw += bo[1]
 	hips.rotation.y = lower_yaw
 	chest.rotation = Vector3(ln, tw - lower_yaw, -bk * 0.5)
 	hip_l.rotation = hl
@@ -1077,6 +1096,8 @@ func tick(delta: float) -> void:
 		look = Vector2(clampf(atan2(-to.x, -to.z), -0.9, 0.9), clampf(atan2(to.y, Vector2(to.x, to.z).length()), -0.4, 0.3))
 	var hlook: Vector2 = _u(_sp_head, delta, look)
 	head.rotation = Vector3(hlook.y - ln * 0.5 - head_tuck, hlook.x, 0.0)
+	if bo.size() == AnimLibrary.BODY_FIELDS.size():
+		head.rotation += Vector3(bo[3], bo[2], 0.0)
 
 	# Bodenkontakt: während der Rolle liegt der tiefste Körperpunkt genau auf dem Boden
 	# (kein Eintauchen, kein Schweben). Danach klingt der Versatz weich aus.
@@ -1108,7 +1129,15 @@ func tick(delta: float) -> void:
 
 	# Waffe (rechte Hand)
 	var drawn_sword := Transform3D(_basis_from(-d.normalized(), f.normalized()), g)
-	var stow_sword: Transform3D = to_chest * _sword_stow_xf()
+	var stow_hips := _sword_stow_xf()
+	var stow_sword: Transform3D = to_chest * stow_hips
+	# Scheide/Schlaufe folgt der (bearbeitbaren) Ablage
+	var scab := hips.get_node_or_null("Scabbard") as Node3D
+	if scab and not (weapon_def and weapon_def.stow == &"back"):
+		scab.transform = stow_hips
+	var dsh := hips.get_node_or_null("DaggerSheath") as Node3D
+	if dsh:
+		dsh.transform = _off_dagger_stow_xf()
 	var draw_ctrl := stow_sword.origin + stow_sword.basis.z * weapon_length * 0.9
 	if weapon_def and weapon_def.stow == &"back":
 		draw_ctrl = Vector3(0.32, 0.72, 0.12)  # über die rechte Schulter nach vorn ziehen
@@ -1119,7 +1148,8 @@ func tick(delta: float) -> void:
 	var hand_l: Vector3 = rest_l_w
 	if has_shield:
 		var held_sh := Transform3D(_basis_from(-sf.normalized(), Vector3.UP, true), sp)
-		var back_sh := Transform3D(_basis_from(-Vector3(0.0, 0.12, 1.0).normalized(), Vector3.UP, true), SHIELD_BACK)
+		var gsb: Dictionary = PoseLibrary.gear().shield_back
+		var back_sh := Transform3D(_basis_from(-(gsb.front as Vector3).normalized(), Vector3.UP, true), gsb.pos)
 		var sp_t := off_p if off_item == &"shield" else 0.0
 		shield.transform = _carry(back_sh, held_sh, _out(sp_t), Vector3(-0.42, 0.5, 0.08))
 		if off_item == &"shield":
@@ -1129,8 +1159,9 @@ func tick(delta: float) -> void:
 	_light_out = _out(lp_t)
 	if _light_kind == &"belt":
 		var to_body := global_transform.affine_inverse()
-		var belt: Transform3D = to_body * hips.global_transform * Transform3D(Basis(Vector3.UP, -0.35), LANTERN_BELT)
-		var held_l: Transform3D = to_body * chest_xf * Transform3D(Basis.IDENTITY, LANTERN_HELD + Vector3(0, sin(_phase * 2.0) * 0.01 * wm, 0))
+		var gr: Dictionary = PoseLibrary.gear()
+		var belt: Transform3D = to_body * hips.global_transform * Transform3D(Basis(Vector3.UP, float(gr.lantern_belt.yaw)), gr.lantern_belt.pos)
+		var held_l: Transform3D = to_body * chest_xf * Transform3D(Basis.IDENTITY, (gr.lantern_held.pos as Vector3) + Vector3(0, sin(_phase * 2.0) * 0.01 * wm, 0))
 		var ctrl: Vector3 = (to_body * chest_xf) * Vector3(0.05, 0.05, -0.3)
 		_lantern_hook.transform = _carry(belt, held_l, _light_out, ctrl)
 		if off_item == &"light":
@@ -1169,7 +1200,7 @@ func tick(delta: float) -> void:
 	var two_t := 1.0 if two_hand and off_item == &"" and action != &"roll" and weapon_p >= 1.6 and weapon_def != null else 0.0
 	_two_w = move_toward(_two_w, two_t, delta * 4.0)
 	if _two_w > 0.0:
-		var shaft_pt: Vector3 = sword.global_transform * Vector3(0, 0, weapon_def.two_hand_offset)
+		var shaft_pt: Vector3 = sword.global_transform * Vector3(0, 0, two_hand_offset())
 		var k := _two_w * _two_w * (3.0 - 2.0 * _two_w)
 		hand_l = hand_l.lerp(shaft_pt, k)
 
@@ -1190,8 +1221,18 @@ func tick(delta: float) -> void:
 	if hand_ovr > 0.0:
 		pole_r = pole_r.lerp(Vector3(0.9, -1.0, 0.2), hand_ovr)
 		pole_l = pole_l.lerp(Vector3(-0.9, -1.0, 0.2), hand_ovr)
-	_solve_arm(arm_up_r, arm_lo_r, chest_xf * SHOULDER_R, hand_r, cb * pole_r)
-	_solve_arm(arm_up_l, arm_lo_l, chest_xf * SHOULDER_L, hand_l, cb * pole_l)
+	var pole_rw: Vector3 = cb * pole_r
+	var pole_lw: Vector3 = cb * pole_l
+	if bo.size() == AnimLibrary.BODY_FIELDS.size():
+		# Ellbogen um die Achse Schulter -> Hand drehen (+ = nach außen/oben)
+		var ax_r: Vector3 = hand_r - chest_xf * SHOULDER_R
+		var ax_l: Vector3 = hand_l - chest_xf * SHOULDER_L
+		if ax_r.length() > 0.05 and absf(bo[11]) > 0.001:
+			pole_rw = pole_rw.rotated(ax_r.normalized(), -bo[11])
+		if ax_l.length() > 0.05 and absf(bo[12]) > 0.001:
+			pole_lw = pole_lw.rotated(ax_l.normalized(), bo[12])
+	_solve_arm(arm_up_r, arm_lo_r, chest_xf * SHOULDER_R, hand_r, pole_rw)
+	_solve_arm(arm_up_l, arm_lo_l, chest_xf * SHOULDER_L, hand_l, pole_lw)
 	_update_lantern(delta, s, accel, yaw_rate)
 
 	if _trail.emitting or _trail.has_points():
@@ -1405,13 +1446,15 @@ func _ease_roll(t: float) -> float:
 func _swing_pose(index: int, t: float, base: Array) -> Array:
 	# Keyframes kommen aus AnimLibrary (data/anims/*.json, bearbeitbar in der Animationswerkstatt).
 	# Erster und letzter Key = aktuelle Grundhaltung -> nahtloser Übergang aus/zurück in die Kampfhaltung.
-	var c: Dictionary = AnimLibrary.clip(AnimLibrary.CLIPS[clampi(index, 0, AnimLibrary.CLIPS.size() - 1)])
+	var c: Dictionary = AnimLibrary.clip(swing_clip if swing_clip != "" else AnimLibrary.CLIPS[clampi(index, 0, AnimLibrary.CLIPS.size() - 1)])
 	var trail_window: Vector2 = c.trail
 	# Zeile: [t, Griff, Klingenrichtung, Flachseite, Drehung, Vorlage, Absenken, Schild, Schild-Front]
 	var keys: Array = [[0.0, base[0], base[1], base[2], 0.0, 0.0, 0.0, base[3], base[4]]]
 	for k in c.keys:
-		keys.append([k.t, _unscale(k.grip), k.dir, k.flat, k.twist, k.lean, k.drop, _unscale(k.shield), k.shield_front])
+		keys.append([k.t, _unscale(k.grip), k.dir, k.flat, k.twist, k.lean, k.drop, _unscale(k.shield), k.shield_front, k.get("body", AnimLibrary.zero_body())])
 	keys.append([1.0, base[0], base[1], base[2], 0.0, 0.0, 0.0, base[3], base[4]])
+	keys[0].append(AnimLibrary.zero_body())
+	keys[keys.size() - 1].append(AnimLibrary.zero_body())
 	# Catmull-Rom durch die Keyframes: durchgehende Geschwindigkeit, keine Stopps an den Keys
 	var i := 0
 	while i < keys.size() - 2 and t > keys[i + 1][0]:
@@ -1427,7 +1470,14 @@ func _swing_pose(index: int, t: float, base: Array) -> Array:
 	var sc := Vector3(_crf(k0[4], k1[4], k2[4], k3[4], u), _crf(k0[5], k1[5], k2[5], k3[5], u), _crf(k0[6], k1[6], k2[6], k3[6], u))
 	var shp := _cr(k0[7], k1[7], k2[7], k3[7], u)
 	var shf := _cr((k0[8] as Vector3).normalized(), (k1[8] as Vector3).normalized(), (k2[8] as Vector3).normalized(), (k3[8] as Vector3).normalized(), u).normalized()
-	return [g, d, f, sc.x, sc.y, sc.z, trail_window, shp, shf]
+	var bod: Array = []
+	var b0: Array = k0[9]
+	var b1: Array = k1[9]
+	var b2: Array = k2[9]
+	var b3: Array = k3[9]
+	for j in b1.size():
+		bod.append(_crf(b0[j], b1[j], b2[j], b3[j], u))
+	return [g, d, f, sc.x, sc.y, sc.z, trail_window, shp, shf, bod]
 
 
 func _cr(p0: Vector3, p1: Vector3, p2: Vector3, p3: Vector3, u: float) -> Vector3:

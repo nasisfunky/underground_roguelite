@@ -207,21 +207,28 @@ die Waffen (Reichweite, beidhändiger Griff, Zweithand-Dolch, Axt mit Licht) und
 
 ## Animationswerkstatt (Animation Workshop)
 
-Die Kampfanimationen (Hiebe Vorhand/Rückhand, Stich, Heavy Strike) sind Keyframe-Daten in
-`data/anims/*.json`. Das Spiel lädt sie beim Start; bearbeitet werden sie in der Werkstatt:
+In Godot `tools/anim_workshop.tscn` öffnen und mit **F6** starten. Oben drei Modi:
 
-1. In Godot `tools/anim_workshop.tscn` öffnen und mit **F6** (aktuelle Szene starten) laufen lassen.
-2. Oben die Animation wählen. Zeitleiste unten: klicken = springen, Raute ziehen = Timing eines Keys ändern,
-   rote Linie = Trefferzeitpunkt, heller Bereich = Klingen-Trail.
-3. In der 3D-Ansicht die Kugeln mit der linken Maustaste ziehen:
-   gelb = Schwertgriff, cyan = Klingenspitze, orange = Schild, kleine orange = Schild-Ausrichtung.
-   Steht an der aktuellen Zeit noch kein Key, wird automatisch einer angelegt.
-   Rote Griff-Kugel = der Arm erreicht diese Position nicht.
-4. Rechts: Werte des Keys (Körperdrehung, Vorlage, Hüfte absenken, genaue Koordinaten),
-   Dauer, Trefferzeitpunkt, Trail-Fenster.
-5. **Check clip** prüft die ganze Animation darauf, ob Klinge oder Arm durch den Körper gehen.
-6. **Save** (Strg+S) schreibt die JSON-Datei, danach im Spiel sofort aktiv.
+**Animations** – alle Kampfanimationen (`data/anims/*.json`: Hiebe, Stich, Heavy, Shove, Sweep, Hook, Bind, Sever, Rake, Flurry).
+- Oben Waffe, Zweithand und Kultur wählen; die Figur trägt dann genau das.
+- Zeitleiste unten: klicken = springen, Raute ziehen = Timing ändern, rote Linie = Treffer, heller Bereich = Trail.
+- Kugeln in der 3D-Ansicht ziehen: gelb = Griff, cyan = Spitze, orange = Zweithand, kleine orange = deren Ausrichtung.
+  Ohne Key an der aktuellen Zeit wird einer angelegt. Rote Griff-Kugel = Arm erreicht die Stelle nicht.
+- Rechts in Reitern: **Hands** (Griff, Klingenrichtung, Zweithand), **Body** (Drehung, Vorlage, Seitneigung, Hüfte
+  absenken/drehen/verschieben, Kopf, Ellbogen), **Legs** (je Bein vor/zurück, abspreizen, Knie), **Timing**
+  (Dauer, Treffer, Trail, Check whole clip). Körperwerte sind Zusätze auf die automatische Haltung (0 = unverändert).
+- Copy/Paste (Strg+C/V) überträgt eine ganze Pose auf einen anderen Zeitpunkt, Clean setzt die Körperzusätze zurück.
+- **Own version for this weapon**: eigene Fassung der Animation nur für die gewählte Waffe
+  (`data/anims/<clip>@<waffe>.json`); ohne eigene Fassung nutzt jede Waffe die allgemeine.
 
-Start und Ende jeder Animation sind immer die aktuelle Grundhaltung (z. B. Kampfhaltung),
-dadurch gibt es keine harten Übergänge. Steuerung: RMB ziehen = Kamera drehen, MMB = verschieben,
-Mausrad = Zoom, Leertaste = abspielen, K = Key setzen, Entf = Key löschen, Pfeile = Zeit/Keys, Strg+Z = rückgängig.
+**Weapon poses** – Haltungen je Waffe (`data/poses/<waffe>.json`): Standing, Walking, Combat stance,
+die beidhändigen Varianten (Abstand der linken Hand am Schaft einstellbar) und **Stowed** (wo die Waffe weggesteckt hängt).
+Die Kulturklingen haben je Kultur eine eigene Datei (kiln/rimefall/glowmire).
+
+**Stowed gear** – für alle Waffen gleich (`data/poses/gear.json`): Schild auf dem Rücken, Zweithand-Dolch am Gürtel,
+Laterne am Gürtel und vorgehalten.
+
+**Save** (Strg+S) schreibt die Datei des aktuellen Modus, im Spiel sofort aktiv. **Revert** lädt die Datei neu,
+Strg+Z macht rückgängig. Fehlt eine Datei, gelten die eingebauten Vorgaben.
+Kamera: RMB ziehen = drehen, MMB = verschieben, Mausrad = Zoom, Front/Side/3/4/Back/Top = feste Ansichten.
+Im Animationsmodus: Leertaste = abspielen, K = Key setzen, Entf = Key löschen, Pfeile = Zeit/Keys.
