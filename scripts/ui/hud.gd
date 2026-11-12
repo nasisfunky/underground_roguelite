@@ -16,6 +16,8 @@ var _room: Label
 var _debug: Label
 var _pause: Control
 var _marker: TargetMarker
+var _chain_labels: Array[Label] = []
+var combo_menu: ComboMenu
 
 
 func setup(p: Player) -> void:
@@ -36,6 +38,18 @@ func setup(p: Player) -> void:
 	bottom.add_theme_constant_override("separation", 5)
 	bottom.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(bottom)
+	# Kombo-Kette: welcher Baustein beim nächsten Klick kommt
+	var chain_row := HBoxContainer.new()
+	chain_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	chain_row.add_theme_constant_override("separation", 4)
+	chain_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bottom.add_child(chain_row)
+	for i in Player.CHAIN_SLOTS:
+		var l := _label(14, Color(0.7, 0.8, 0.8))
+		l.custom_minimum_size = Vector2(108, 0)
+		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		chain_row.add_child(l)
+		_chain_labels.append(l)
 	_hp = _bar(Color(0.78, 0.26, 0.18), Vector2(560, 16))
 	_st = _bar(Color(0.30, 0.85, 0.88), Vector2(560, 9))
 	bottom.add_child(_hp)
@@ -72,16 +86,19 @@ func setup(p: Player) -> void:
 	# --- Hilfe oben links ---
 	_help = _label(13, Color(0.8, 0.92, 0.92, 0.9))
 	_help.position = Vector2(18, 16)
-	_help.text = """WASD  move        Space  jump (hold = higher)
-Shift  roll (in move direction)        Hold right mouse / Q  block (early = parry)
-Mouse  camera        Mouse wheel  zoom        Hold Alt  free cursor
-Left click  attack (click again in rhythm = combo)
-Middle mouse  thrust (sword alt attack, more reach)
+	_help.text = """WASD  move        Space  jump (hold = higher)        Shift  sprint
+Left Alt  roll (weapon drawn: back/side rolls relative to camera)
+Hold right mouse / Q  block (early = parry)
+Y  draw / sheathe weapon        X  raise / stow light
+Mouse  camera        Mouse wheel  zoom        Esc  pause (frees the cursor)
+Left click  play your combo chain (click in rhythm)        C  build the chain, pick weapon
+Middle mouse  thrust (alt attack, more reach)
 1  Heavy Strike        2  Shield Bash
-F1 Help   F2 Change culture   F3 Debug   Esc Pause"""
+Walk into grates/lichen to climb (costs stamina), swim to a ledge to climb out
+F1 Help   F2 Change culture   F3 Debug   F4 Test explosion   Esc Pause"""
 	root.add_child(_help)
 	_mode = _label(13, Color(1.0, 0.85, 0.5, 0.9))
-	_mode.position = Vector2(18, 192)
+	_mode.position = Vector2(18, 250)
 	root.add_child(_mode)
 
 	# --- Raumtitel ---
@@ -103,6 +120,10 @@ F1 Help   F2 Change culture   F3 Debug   Esc Pause"""
 	root.add_child(_debug)
 
 	_build_pause(root)
+	combo_menu = ComboMenu.new()
+	combo_menu.setup(p)
+	combo_menu.closed.connect(_on_combo_closed)
+	root.add_child(combo_menu)
 
 	_marker = TargetMarker.new()
 	add_child(_marker)
@@ -200,8 +221,30 @@ func _toggle_pause() -> void:
 			player.input.capture_mouse()
 
 
+func toggle_combo_menu() -> void:
+	if combo_menu.visible:
+		combo_menu.close_menu()
+		return
+	if Game.paused:
+		return
+	combo_menu.open_menu()
+	get_tree().paused = true
+	if player.input:
+		player.input.release_mouse()
+
+
+func _on_combo_closed() -> void:
+	get_tree().paused = false
+	if player.input:
+		player.input.capture_mouse()
+
+
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed("pause"):
+	if event.is_action_pressed("combo_menu"):
+		toggle_combo_menu()
+	elif event.is_action_pressed("pause") and combo_menu.visible:
+		combo_menu.close_menu()
+	elif event.is_action_pressed("pause"):
 		_toggle_pause()
 	elif event.is_action_pressed("toggle_help"):
 		_help.visible = not _help.visible
@@ -213,6 +256,29 @@ func _process(_delta: float) -> void:
 	if not player:
 		return
 	_mode.text = ""
+	var nxt := player.next_chain_slot()
+	var cur := player.current_chain_slot()
+	for i in _chain_labels.size():
+		var l := _chain_labels[i]
+		var id: StringName = player.combo_chain[i] if i < player.combo_chain.size() else &""
+		if id == &"":
+			l.text = "-"
+			l.modulate = Color(1, 1, 1, 0.35)
+			continue
+		var m := ComboModules.make(id)
+		l.text = m.display_name
+		var ok := ComboModules.usable(id, player.weapon)
+		if not ok:
+			l.modulate = Color(0.6, 0.45, 0.45, 0.6)
+		elif i == cur:
+			l.modulate = Color(1.0, 1.0, 1.0, 1.0)
+			l.add_theme_color_override("font_color", Color(1.0, 0.85, 0.5))
+		elif i == nxt:
+			l.modulate = Color(1, 1, 1, 1)
+			l.add_theme_color_override("font_color", Color(0.6, 0.95, 1.0))
+		else:
+			l.modulate = Color(1, 1, 1, 0.6)
+			l.add_theme_color_override("font_color", Color(0.7, 0.8, 0.8))
 	for i in 9:
 		var a: Ability = player.abilities[i]
 		var s := _slots[i]

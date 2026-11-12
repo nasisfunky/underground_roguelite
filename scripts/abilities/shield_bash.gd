@@ -13,6 +13,7 @@ func _init() -> void:
 	stamina_cost = 15.0
 	duration = 0.72
 	cancel_at = 0.38
+	needs_shield = true
 
 
 func start(_p: Player) -> void:

@@ -67,7 +67,11 @@ func _ready() -> void:
 			dummy = e
 	var hits := [0]
 	dummy.health_changed.connect(func(_c, _m): hits[0] += 1)
-	await _phys(20)
+	p.input._draw = true  # Waffe ziehen (Y); das automatische Ziehen beim Angriff prüft der Bewegungstest
+	await _phys(45)
+	# Kette wie der klassische Auto-Angriff: Vorhand, Rückhand (die Bausteine prüft der Kampftest)
+	var saved_chain := p.combo_chain.duplicate()
+	p.combo_chain.assign([&"cut", &"backcut", &"", &"", &""])
 	_check("Ohne Klick kein Angriff", hits[0] == 0, "%d Treffer" % hits[0])
 	var st_before := p.stamina
 	p.input._attack = 1
@@ -91,6 +95,7 @@ func _ready() -> void:
 	await _phys(80)
 	_check("Stich trifft stärker", hp_before - dummy.health > p.swing_damage * 1.2, "%.1f Schaden" % (hp_before - dummy.health))
 	await _phys(40)
+	p.combo_chain.assign(saved_chain)
 
 	# --- Fähigkeit 1 ---
 	hits[0] = 0
@@ -180,6 +185,14 @@ func _ready() -> void:
 		await _phys(150)
 		Input.action_release("move_forward")
 		_check(seg[0], p.global_position.z < seg[2], "z %.1f" % p.global_position.z)
+
+	# --- Kein Z-Fighting im Level (übereinanderliegende Flächen flackern) ---
+	var t0 := Time.get_ticks_msec()
+	var zf := ZFight.scan(level.get_node("Geometry"))
+	zf.sort_custom(func(x, y): return x.area > y.area)
+	for i in mini(zf.size(), 25):
+		print("      z-fight: %s  <->  %s  %.3f m²  bei %s" % [zf[i].a, zf[i].b, zf[i].area, (zf[i].at as Vector3).snapped(Vector3.ONE * 0.1)])
+	_check("Kein Z-Fighting im Level", zf.is_empty(), "%d Paare, Scan %d ms" % [zf.size(), Time.get_ticks_msec() - t0])
 
 	# --- Kulturen wechseln (F2): Figur wird neu gebaut, Stoff simuliert ohne Ausreißer ---
 	_teleport(Vector3(0, 0.1, 8.0), 0.0)

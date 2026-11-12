@@ -30,6 +30,12 @@ func _ready() -> void:
 	_build_tail()
 	_build_eyes()
 	_break_weapon()
+	# Scheide und übrige Kleinteile am Gürtel ebenfalls verbraucht
+	for n in ["Scabbard", "DaggerSheath"]:
+		var holder := body.hips.get_node_or_null(n)
+		if holder:
+			for mi in holder.find_children("*", "MeshInstance3D", true, false):
+				ShadowBody.wear(mi, 4.0)
 	tick(0.0)
 
 

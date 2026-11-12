@@ -10,14 +10,9 @@ extends Node3D
 ## Dadurch kann der Oberkörper zuschlagen, während die Beine weiterlaufen (Auto-Angriff wie in WoW).
 ## Der Controller setzt pro Tick die Eingangswerte unten und ruft tick(delta) auf.
 
-enum Headgear { HOOD, HORNED_HELM, WIDE_HAT }
 
 # --- Aussehen ---
-var cloth_color := Color(0.16, 0.30, 0.30)
-var scarf_color := Color(0.30, 0.17, 0.38)
-var trim_color := Color(0.42, 0.62, 0.60)
 var eye_color := LowPoly.EYE_YELLOW
-var headgear: Headgear = Headgear.HOOD
 var has_shield := true
 var weapon_length := 0.78
 ## Splitter-Laterne ("Shard Lantern") am linken Hüftgurt: eigenes Licht, kein Ausrüstungsplatz
@@ -51,6 +46,30 @@ var combat := 0.0  ## 0..1, Kampfhaltung (Ziel in Reichweite): Schild und Waffe 
 var snap := false  ## Werkstatt: Federn springen sofort auf ihr Ziel (exakte Pose, kein Nachschwingen)
 var swing_sample: Array = []  ## letzte ausgewertete Schwung-Pose (für die Werkstatt)
 var look_target: Variant = null  ## Weltposition, zu der der Kopf schaut (oder null)
+## Ausrüstung ziehen/wegstecken. Rechte Hand: Waffe. Linke Hand: Schild, Licht oder nichts.
+## Die Figur greift selbst zum Gürtel/Rücken und zieht bzw. steckt weg (weapon_p/off_p laufen 0..2:
+## 0 = weggesteckt, 1 = Hand am Griff, 2 = in der Hand).
+var want_weapon := true
+var want_off: StringName = &"shield"  ## &"shield", &"light" oder &""
+var draw_speed := 1.0  ## >1 = schnelles Ziehen (z. B. beim Angriff aus dem Stand)
+var weapon_p := 2.0
+var off_item: StringName = &""  ## Teil, das die linke Hand gerade hält, greift oder wegsteckt
+var off_p := 0.0
+var sprint := 0.0  ## 0..1, Sprinthaltung
+## Waffe beidhändig führen (Zweihandaxt, Speer ohne Zweithand-Teil): linke Hand greift den Schaft
+var two_hand := false
+## Zweithand-Dolch sticht nach (1 -> 0, setzt der Controller)
+var off_jab := 0.0
+## Rolle: Richtung relativ zum Körper ("fwd", "back", "left", "right")
+var roll_kind: StringName = &"fwd"
+## Klettern: Bewegung an der Wand (x seitlich, y hoch) und Kletterzyklus (rad)
+var climb_move := Vector2.ZERO
+var climb_phase := 0.0
+## Schwimmen: Vortrieb 0..1 und Schwimmzyklus (rad)
+var swim_amount := 0.0
+var swim_phase := 0.0
+## Kante, an der sich die Figur hochzieht (Welt): Rausklettern aus dem Wasser und Klettern über Kanten
+var ledge_world := Vector3.ZERO
 
 # --- Interne Knoten ---
 var rig: Node3D
@@ -67,9 +86,6 @@ var arm_up_l: Node3D
 var arm_lo_l: Node3D
 var arm_up_r: Node3D
 var arm_lo_r: Node3D
-var scarf_tail: Node3D
-var tabard_front: Node3D
-var tabard_back: Node3D
 var eye_mat: StandardMaterial3D
 var lantern: Node3D  ## Pendel-Knoten (hängt an der Hüfte)
 var lantern_light: OmniLight3D
@@ -77,7 +93,7 @@ var _lantern_core: MeshInstance3D
 var _sp_lan_x: Spring
 var _sp_lan_z: Spring
 
-# Proportionen (müssen zu tools/blender/build_shade.py passen)
+# Proportionen (müssen zu den Frayed-Modellen aus tools/frayed_export passen)
 const UPPER_ARM := 0.29
 const LOWER_ARM := 0.33
 const THIGH := 0.38
@@ -128,9 +144,6 @@ var _sp_combat: Spring
 var _glue := 0.0
 var _sp_off: Spring
 var _sp_off_up: Spring
-var _sp_scarf: Spring
-var _sp_tab_f: Spring
-var _sp_tab_b: Spring
 var _prev_speed := 0.0
 var _prev_yaw := 0.0
 var _prev_vy := 0.0
@@ -145,15 +158,34 @@ var cloth: FrayedCloth
 var offhand: Node3D  ## Laternenstab (Glowmire) in der linken Hand
 var head_light: OmniLight3D
 var _hem_mats: Array[ShaderMaterial] = []
-var _lantern_offset := Vector3(-0.3, 0.2, 0.0)  ## Licht neben der Laterne (Körper-Koordinaten)
+var _lantern_offset := Vector3(0.3, 0.2, 0.0)  ## Licht neben der Laterne (Körper-Koordinaten)
 var _grip_l := false
 var _shards: Array[Node3D] = []
 var _twitch := Vector3.ZERO
 var _twitch_t := 1.0
 var _rng := RandomNumberGenerator.new()
+var _light_kind: StringName = &""  ## &"belt" (Laterne am Gürtel) oder &"pole" (Laternenstab, Glowmire)
+var _lantern_hook: Node3D  ## Gürtelschlaufe der Laterne (wandert beim Ziehen in die Hand)
+var _sp_hz: Spring
+var _sp_rest_r: Spring
+var _sp_rest_l: Spring
+var _light_out := 0.0  ## 0..1, wie weit das Licht gerade vorgehalten ist
+var weapon_def: WeaponDef  ## null = Waffe der Kultur
+var off_dagger: Node3D  ## Dolch für die linke Hand (statt Schild)
+var has_off_dagger := false
+var _culture_weapon: Node3D
+var _culture_len := 0.78
+var _custom_weapon: Node3D
+var _two_w := 0.0  ## 0..1, Gewicht des beidhändigen Griffs
+
+## Ablagen (Hüft- bzw. Brust-Koordinaten)
+const LANTERN_BELT := Vector3(0.21, 0.04, 0.0)  ## rechte Hüfte (links hängt die Waffe)
+const LANTERN_HELD := Vector3(-0.12, 0.32, -0.5)  ## vorgehalten, linke Hand (Brust-Koordinaten)
+const SHIELD_BACK := Vector3(0.02, 0.2, 0.27)  ## Schild auf dem Rücken (Brust-Koordinaten)
+const POLE_BACK := Vector3(0.1, 0.1, 0.27)  ## Laternenstab schräg auf dem Rücken
+const SWORD_BELT := Vector3(-0.21, 0.1, -0.12)  ## Griff an der linken Hüfte (Hüft-Koordinaten)
 
 
-const PARTS_PATH := "res://assets/models/shade_parts.glb"
 const SKIN_SHADER := preload("res://assets/shaders/shade_skin.gdshader")
 const GHOST_SHADER := preload("res://assets/shaders/hollow_ghost.gdshader")
 const GHOST_DEPTH_SHADER := preload("res://assets/shaders/hollow_ghost_depth.gdshader")
@@ -165,95 +197,9 @@ static var _skin_mat: ShaderMaterial
 func build() -> void:
 	_flash_mat = hit_flash_material()
 
-	if outfit != "":
-		_build_frayed()
-		return
-	var parts := ModelParts.load_parts(PARTS_PATH)
-	eye_mat = LowPoly.mat(eye_color, 2.6).duplicate()
-	# Materialnamen aus Blender -> Farben dieser Figur
-	_overrides = {
-		"Cloth": LowPoly.mat(cloth_color),
-		"ClothDark": LowPoly.mat(cloth_color.darkened(0.45)),
-		"Trim": LowPoly.mat(trim_color),
-		"Scarf": LowPoly.mat(scarf_color),
-		"Eye": eye_mat,
-		"Gem": LowPoly.mat(LowPoly.CYAN, 3.0),
-		"Void": LowPoly.unshaded(Color(0.008, 0.008, 0.012)),
-	}
-
-	rig = Node3D.new()
-	rig.name = "Rig"
-	rig.position.y = RIG_Y
-	add_child(rig)
-
-	hips = Node3D.new()
-	hips.position.y = HIPS_Y
-	rig.add_child(hips)
-	_part(parts, "Pelvis", hips)
-
-	tabard_front = Node3D.new()
-	tabard_front.position = Vector3(0, 0.08, -0.12)
-	hips.add_child(tabard_front)
-	_part(parts, "TabardFront", tabard_front)
-	tabard_back = Node3D.new()
-	tabard_back.position = Vector3(0, 0.08, 0.12)
-	hips.add_child(tabard_back)
-	_part(parts, "TabardBack", tabard_back)
-
-	hip_l = _joint(hips, Vector3(-0.085, 0, 0))
-	_part(parts, "ThighL", hip_l)
-	knee_l = _joint(hip_l, Vector3(0, -THIGH, 0))
-	_part(parts, "ShinL", knee_l)
-	hip_r = _joint(hips, Vector3(0.085, 0, 0))
-	_part(parts, "ThighR", hip_r)
-	knee_r = _joint(hip_r, Vector3(0, -THIGH, 0))
-	_part(parts, "ShinR", knee_r)
-
-	chest = _joint(hips, Vector3(0, CHEST_Y, 0))
-	_part(parts, "Torso", chest)
-	_part(parts, "Mantle", chest)
-	_part(parts, "Scarf", chest)
-	scarf_tail = _joint(chest, Vector3(0.08, 0.52, 0.17))
-	_part(parts, "ScarfTail", scarf_tail)
-
-	head = _joint(chest, Vector3(0, HEAD_Y, 0))
-	_part(parts, "Head", head)
-	_part(parts, "Eyes", head)
-	match headgear:
-		Headgear.HOOD:
-			_part(parts, "Hood", head)
-		Headgear.HORNED_HELM:
-			_part(parts, "HornedHelm", head)
-		Headgear.WIDE_HAT:
-			_part(parts, "WideHat", head).position.y = 0.064
-	var glow := OmniLight3D.new()
-	glow.light_color = eye_color
-	glow.light_energy = 0.35
-	glow.omni_range = 0.7
-	glow.position = Vector3(0, 0, -0.28)
-	head.add_child(glow)
-
-	# Arme hängen direkt an diesem Knoten und werden per IK gesetzt
-	arm_up_l = _joint(self, Vector3.ZERO)
-	_part(parts, "UpperArmL", arm_up_l)
-	arm_lo_l = _joint(self, Vector3.ZERO)
-	_part(parts, "ForearmL", arm_lo_l)
-	arm_up_r = _joint(self, Vector3.ZERO)
-	_part(parts, "UpperArmR", arm_up_r)
-	arm_lo_r = _joint(self, Vector3.ZERO)
-	_part(parts, "ForearmR", arm_lo_r)
-
-	sword = _joint(chest, Vector3.ZERO)
-	_part(parts, "Sword", sword).scale = Vector3.ONE * (weapon_length / 0.78)
-	if has_shield:
-		shield = _joint(chest, Vector3.ZERO)
-		_part(parts, "Shield", shield)
-
-	_trail = SwordTrail.new()
-	add_child(_trail)
-
-	if has_lantern:
-		_build_lantern()
+	if outfit == "":
+		outfit = "kiln"
+	_build_frayed()
 
 
 ## Trefferblitz als Overlay: kurzes warmes Aufglimmen, schwach genug, dass der Shade nie weiß wird.
@@ -368,7 +314,8 @@ func _build_frayed() -> void:
 	head.add_child(head_light)
 
 	sword = _joint(chest, Vector3.ZERO)
-	_part(parts, "Weapon", sword)
+	_culture_weapon = _part(parts, "Weapon", sword)
+	_culture_len = weapon_length
 	if has_shield and parts.has("Shield"):
 		shield = _joint(chest, Vector3.ZERO)
 		_part(parts, "Shield", shield).position.z = -0.05
@@ -390,12 +337,25 @@ func _build_frayed() -> void:
 			lm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			lm.layers = LANTERN_LAYER
 			_lantern_offset = Vector3(0.0, 0.1, 0.0)
+			_light_kind = &"pole"
 			_add_lantern_light()
 
 	_trail = SwordTrail.new()
 	add_child(_trail)
 	if has_lantern and lantern == null:
 		_build_lantern()
+	if not willfault:
+		_build_scabbard()
+	# Grundzustand: alles in der Hand (Gegner); der Spieler steckt per set_equipment() weg
+	if has_shield:
+		off_item = &"shield"
+		off_p = 2.0
+	elif _light_kind == &"pole":
+		off_item = &"light"
+		off_p = 2.0
+		want_off = &"light"
+	else:
+		want_off = &""
 	if willfault:
 		_build_shards()
 		return
@@ -403,6 +363,135 @@ func _build_frayed() -> void:
 	cloth.legs = not ghost
 	cloth.torn = ghost
 	cloth.setup(self, outfit_info, parts, joints)
+
+
+## Waffe tauschen (Spieler). null oder Kulturwaffe = Modell aus dem Outfit.
+func set_weapon(w: WeaponDef) -> void:
+	weapon_def = w
+	if _custom_weapon:
+		_custom_weapon.queue_free()
+		_custom_weapon = null
+	var culture := w == null or w.culture
+	_culture_weapon.visible = culture
+	weapon_length = _culture_len if culture else w.length
+	if not culture:
+		_custom_weapon = Node3D.new()
+		_custom_weapon.name = "CustomWeapon"
+		sword.add_child(_custom_weapon)
+		WeaponDef.build_mesh(w.id, _custom_weapon)
+	# Zweithand-Dolch gibt es für den Spieler immer (liegt hinten am Gürtel)
+	if off_dagger == null and not willfault:
+		off_dagger = _joint(chest, Vector3.ZERO)
+		off_dagger.name = "OffDagger"
+		WeaponDef.build_mesh(&"off_dagger", off_dagger)
+		has_off_dagger = true
+	var old := hips.get_node_or_null("Scabbard")
+	if old:
+		old.free()
+	var old2 := hips.get_node_or_null("DaggerSheath")
+	if old2:
+		old2.free()
+	if not willfault:
+		_build_scabbard()
+
+
+## Weltposition einer Hand (links/rechts) – z. B. Ursprung der Schattenranke.
+func hand_position(left: bool) -> Vector3:
+	var lo := arm_lo_l if left else arm_lo_r
+	return lo.global_transform * Vector3(0, -LOWER_ARM, 0)
+
+
+## Sofort umrüsten (ohne Animation): Waffe gezogen?, linke Hand: &"shield", &"light" oder &"".
+func set_equipment(weapon: bool, off: StringName) -> void:
+	want_weapon = weapon
+	weapon_p = 2.0 if weapon else 0.0
+	want_off = off
+	if off == &"shield" and not has_shield:
+		off = &""
+	if off == &"light" and _light_kind == &"":
+		off = &""
+	if off == &"dagger" and not has_off_dagger:
+		off = &""
+	off_item = off
+	off_p = 2.0 if off != &"" else 0.0
+
+
+func has_light_item() -> bool:
+	return _light_kind != &""
+
+
+## Waffe vollständig in der Hand?
+func weapon_ready() -> bool:
+	return weapon_p >= 2.0
+
+
+## Schild vollständig am Arm?
+func shield_ready() -> bool:
+	return off_item == &"shield" and off_p >= 2.0
+
+
+## Licht vorgehalten (ganz oder auf dem Weg)?
+func light_held() -> bool:
+	return off_item == &"light" and off_p > 1.0
+
+
+## Scheide an der linken Hüfte (Säbel und Klinge); die Axt hängt in einer Gürtelschlaufe.
+func _build_scabbard() -> void:
+	var leather := LowPoly.mat(Color(0.075, 0.055, 0.045))
+	var fitting := LowPoly.mat(Color(0.32, 0.24, 0.12), 0.0, 0.5)
+	if has_off_dagger:
+		var ds := _joint(hips, Vector3.ZERO)
+		ds.name = "DaggerSheath"
+		ds.transform = _off_dagger_stow_xf()
+		LowPoly.mesh_instance(LowPoly.box(Vector3(0.05, 0.026, 0.3)), leather, ds, Vector3(0, 0, -0.2))
+	var holder := _joint(hips, Vector3.ZERO)
+	holder.name = "Scabbard"
+	if weapon_def and weapon_def.stow == &"back":
+		# Stangenwaffe auf dem Rücken: nur ein Riemen quer über den Rumpf
+		holder.transform = Transform3D.IDENTITY
+		var strap := LowPoly.mesh_instance(LowPoly.box(Vector3(0.035, 0.62, 0.02)), leather, chest, Vector3(0.0, 0.2, 0.0))
+		strap.name = "BackStrap"
+		strap.rotation.z = -0.55 if weapon_def.id == &"spear" else 0.55
+		strap.position.z = 0.23
+		strap.reparent(holder)
+		return
+	holder.transform = _sword_stow_xf()
+	if outfit == "rimefall" and (weapon_def == null or weapon_def.culture):
+		LowPoly.mesh_instance(LowPoly.box(Vector3(0.07, 0.05, 0.05)), leather, holder, Vector3(0, 0, -0.1))
+		return
+	var length := weapon_length - 0.1
+	var sc := LowPoly.mesh_instance(LowPoly.box(Vector3(0.075, 0.034, length)), leather, holder, Vector3(0, 0, -0.13 - length * 0.5))
+	sc.name = "Sheath"
+	LowPoly.mesh_instance(LowPoly.box(Vector3(0.085, 0.044, 0.05)), fitting, holder, Vector3(0, 0, -0.14))
+	LowPoly.mesh_instance(LowPoly.box(Vector3(0.08, 0.04, 0.06)), fitting, holder, Vector3(0, 0, -0.1 - length))
+	# Riemen zum Gürtel
+	LowPoly.mesh_instance(LowPoly.box(Vector3(0.03, 0.09, 0.03)), leather, holder, Vector3(0.03, 0.05, -0.2))
+
+
+## Lage der weggesteckten Waffe (Hüft-Koordinaten): Griff vorn an der linken Hüfte, Klinge nach hinten unten.
+func _sword_stow_xf() -> Transform3D:
+	if weapon_def and weapon_def.stow == &"back":
+		return chest.transform * _back_stow_chest()
+	var dir := Vector3(-0.14, -0.6, 0.79).normalized()
+	if outfit == "rimefall" and (weapon_def == null or weapon_def.culture):
+		dir = Vector3(-0.12, -0.9, 0.42).normalized()  # Axt: Kopf nach unten in der Schlaufe
+	return Transform3D(_basis_from(-dir, Vector3(1, 0, 0)), SWORD_BELT)
+
+
+## Stangenwaffen auf dem Rücken (Brust-Koordinaten): Speer schräg, Spitze über der linken Schulter;
+## Axt mit dem Kopf über der rechten Schulter.
+func _back_stow_chest() -> Transform3D:
+	var dir := Vector3(-0.5, 0.85, 0.06).normalized()
+	var pos := Vector3(0.12, -0.04, 0.35)
+	if weapon_def.id == &"greataxe":
+		dir = Vector3(0.36, 0.92, 0.06).normalized()
+		pos = Vector3(-0.12, -0.12, 0.34)
+	return Transform3D(_basis_from(-dir, Vector3(0, 0, 1)), pos)
+
+
+## Zweithand-Dolch weggesteckt: quer hinten am Gürtel, Griff rechts (Hüft-Koordinaten).
+func _off_dagger_stow_xf() -> Transform3D:
+	return Transform3D(_basis_from(Vector3(1.0, 0.25, 0.1).normalized(), Vector3(0, 0, 1)), Vector3(-0.14, 0.02, 0.17))
 
 
 ## Geisterschleier: unsichtbarer Tiefen-Durchgang am Teil selbst, Farbe als Kind darüber
@@ -507,9 +596,10 @@ func _update_willfault(delta: float) -> void:
 ## Kleine Käfiglaterne mit leuchtendem Kristallsplitter, an einem kurzen Riemen.
 func _build_lantern() -> void:
 	var metal := LowPoly.mat(Color(0.09, 0.08, 0.07), 0.0, 0.6)
-	var strap := LowPoly.mat(cloth_color.darkened(0.55))
-	var hook := _joint(hips, Vector3(-0.2, 0.03, 0.05))
-	hook.rotation.y = 0.35
+	var strap := LowPoly.mat(Color(0.07, 0.07, 0.07))
+	var hook := _joint(self, Vector3.ZERO)  # Lage setzt tick(): Gürtel rechts oder linke Hand
+	_lantern_hook = hook
+	_light_kind = &"belt"
 	LowPoly.mesh_instance(LowPoly.box(Vector3(0.05, 0.1, 0.07)), strap, hook)  # Gurtschlaufe
 	lantern = _joint(hook, Vector3(0, -0.04, 0))
 	var ring := LowPoly.mesh_instance(LowPoly.prism(0.018, 0.018, 0.06, 4), metal, lantern, Vector3(0, -0.03, 0))
@@ -616,7 +706,7 @@ func set_eye_intensity(v: float) -> void:
 
 
 func sword_points() -> Array[Vector3]:
-	var base := sword.global_transform * Vector3(0, 0, -0.12)
+	var base := sword.global_transform * Vector3(0, 0, -maxf(0.12, weapon_length - 0.6))
 	var tip := sword.global_transform * Vector3(0, 0, -weapon_length)
 	return [base, tip]
 
@@ -646,11 +736,11 @@ func _init_springs() -> void:
 	_sp_pivot = Spring.new(5.0, 1.0, 1.0, RIG_Y)
 	_sp_combat = Spring.new(1.6, 1.0, 1.0, 0.0)  # Kampfhaltung baut sich in ~0,4 s auf
 	# Stoff: weich und schwingend
-	_sp_scarf = Spring.new(1.6, 0.3, 1.0, 0.3)
-	_sp_tab_f = Spring.new(2.4, 0.35, 1.0, 0.0)
-	_sp_tab_b = Spring.new(2.0, 0.3, 1.0, 0.0)
 	_sp_off = Spring.new(3.0, 0.8, 1.0, OFFHAND_HOLD)
 	_sp_off_up = Spring.new(2.5, 0.6, 1.0, Vector3(0.0, 1.0, -0.08))
+	_sp_hz = Spring.new(2.5, 0.9, 1.0, 0.0)
+	_sp_rest_r = Spring.new(3.2, 0.8, 1.0, Vector3(0.25, -0.14, -0.03))
+	_sp_rest_l = Spring.new(3.2, 0.8, 1.0, Vector3(-0.25, -0.14, -0.03))
 	_springs_ready = true
 
 
@@ -679,7 +769,8 @@ func tick(delta: float) -> void:
 	_was_floor = on_floor
 	_prev_vy = vertical_velocity
 
-	var s := clampf(speed / run_speed_ref, 0.0, 1.3)
+	_update_draw(delta)
+	var s := clampf(speed / run_speed_ref, 0.0, 1.6)
 	# stufenloser Übergang Stand <-> Laufen <-> Luft
 	var w_move: float = clampf(_u(_sp_moving, delta, 1.0 if (s > 0.04 and on_floor) else 0.0), 0.0, 1.2)
 	var w_air: float = clampf(_u(_sp_air, delta, 0.0 if on_floor else 1.0), 0.0, 1.0)
@@ -687,7 +778,7 @@ func tick(delta: float) -> void:
 	# --- Schrittzyklus: Schrittlänge wächst mit Tempo, Beinausschlag passt zur Schrittlänge (kein Gleiten) ---
 	var backwards := local_move.y < -0.1
 	var dir_sign := -1.0 if backwards else 1.0
-	var stride := lerpf(1.25, 2.5, clampf(s, 0.0, 1.0))  # Meter pro Doppelschritt: wenige, lange Schritte
+	var stride := lerpf(1.25, 2.5, clampf(s, 0.0, 1.0)) + 1.0 * sprint  # Meter pro Doppelschritt: wenige, lange Schritte
 	_phase += delta * speed / stride * TAU * dir_sign
 	var leg_len := THIGH + SHIN
 	var amp := asin(clampf(stride * 0.25 / leg_len, 0.0, 0.9)) * 1.05 * w_move
@@ -706,7 +797,8 @@ func tick(delta: float) -> void:
 	var bob := (-0.05 * s + 0.06 * s * absf(cos(_phase))) * w_move  # deutliches Absenken pro Schritt = Gewicht
 	# Stand-Pose (Kampfhaltung, leichtes Atmen)
 	var breathe := sin(_time * 2.0)
-	var cw: float = clampf(_u(_sp_combat, delta, combat), 0.0, 1.0)
+	# Kampfhaltung nur mit gezogener Waffe (sonst hängen die Arme natürlich)
+	var cw: float = clampf(_u(_sp_combat, delta, combat * clampf(weapon_p - 1.0, 0.0, 1.0) * (1.0 - sprint)), 0.0, 1.0)
 	# Kampfstand: linkes Bein vor, rechtes zurück, tiefer in den Knien
 	var idle_hl := lerpf(0.16, 0.34, cw)
 	var idle_hr := lerpf(-0.2, -0.3, cw)
@@ -726,7 +818,7 @@ func tick(delta: float) -> void:
 	kr = lerpf(kr, -0.5, w_air)
 
 	# Rumpf: vorlehnen mit Tempo und beim Beschleunigen, in Kurven neigen
-	var lean := -0.06 - 0.1 * cw - 0.16 * minf(s, 1.0) * wm - clampf(accel * 0.012, -0.25, 0.25) - 0.08 * w_air
+	var lean := -0.06 - 0.1 * cw - 0.16 * minf(s, 1.0) * wm - 0.14 * sprint * wm - clampf(accel * 0.012, -0.25, 0.25) - 0.08 * w_air
 	var bank := clampf(-yaw_rate * speed * 0.012, -0.3, 0.3)
 	var twist := 0.0
 	var hips_drop := 0.0
@@ -737,9 +829,18 @@ func tick(delta: float) -> void:
 	var rig_scale := 1.0
 	var head_tuck := 0.0
 	var ground_glue := false
+	var roll_basis := Basis.IDENTITY
+	var hips_z := 0.0
+	# Handziele (Körper-Koordinaten) für Klettern/Hochziehen/Schwimmen; Gewicht 0 = normale Arme
+	var hand_ovr := 0.0
+	var hand_l_local := Vector3.ZERO
+	var hand_r_local := Vector3.ZERO
+	# Hände ohne Waffe während der Rolle (Brust-Koordinaten), sonst null
+	var free_hands: Variant = null
 
 	# --- Waffe / Schild Grundposen ---
-	var grip := Vector3(0.27, -0.30, -0.16).lerp(Vector3(0.30, -0.34, 0.02), minf(s, 1.0) * wm)
+	# Waffe gezogen, ohne Kampfhaltung: locker gehalten, Arm leicht gebeugt (in Reichweite der Schulter)
+	var grip := Vector3(0.27, -0.15, -0.16).lerp(Vector3(0.30, -0.16, 0.0), minf(s, 1.0) * wm)
 	var sdir := Vector3(0.12, -0.32, -1.0).lerp(Vector3(0.25, -0.75, 0.55), minf(s, 1.0) * wm)
 	var sflat := Vector3(1, 0, 0)
 	grip.z += sin(_phase) * 0.07 * minf(s, 1.0) * wm
@@ -755,6 +856,20 @@ func tick(delta: float) -> void:
 		sflat = sflat.lerp(Vector3(1, 0, 0.3), cw)
 		sh_pos = sh_pos.lerp(GUARD_SHIELD + bob_g, cw)
 		sh_front = sh_front.lerp(GUARD_SHIELD_FRONT, cw)
+	# Beidhändig: Speer mit der Spitze nach vorn (Kampf) bzw. schräg gesenkt, Axt quer vor dem Körper
+	if _two_w > 0.0 and weapon_def:
+		var k2 := _two_w * _two_w * (3.0 - 2.0 * _two_w)
+		var tg: Vector3
+		var td: Vector3
+		if weapon_def.id == &"spear":
+			tg = Vector3(0.24, -0.08, -0.12).lerp(Vector3(0.22, 0.0, -0.2), cw)
+			td = Vector3(-0.05, -0.25, -1.0).lerp(Vector3(-0.08, 0.12, -1.0), cw)
+		else:
+			# Kopf oben rechts, Stielende unten links: beide Hände bleiben in Reichweite
+			tg = Vector3(0.12, 0.1, -0.28).lerp(Vector3(0.12, 0.14, -0.3), cw)
+			td = Vector3(0.45, 0.7, -0.45).lerp(Vector3(0.35, 0.8, -0.45), cw)
+		grip = grip.lerp(tg, k2)
+		sdir = sdir.lerp(td, k2)
 	var hand_f := 3.0  # Federfrequenz der Hände (niedrig = träge, schwer)
 
 	match action:
@@ -772,41 +887,165 @@ func tick(delta: float) -> void:
 			sh_front = k[8]
 			_trail.emitting = action_t > k[6].x and action_t < k[6].y
 		&"roll":
-			# Rolle bis ROLL_SPIN, danach schweres Aufrichten aus der Hocke
-			var e := _ease_roll(action_t)
-			rig_x = -TAU * e
+			# Ablauf: Abtauchen (Gewicht in die Rollrichtung), enge Drehung über die Schulter,
+			# Landen in der Hocke, Aufrichten mit Schwung. Vorwärts, rückwärts und seitlich sehen verschieden aus.
+			var t := action_t
+			var back := roll_kind == &"back"
+			var side := -1.0 if roll_kind == &"left" else (1.0 if roll_kind == &"right" else 0.0)
+			var dive := smoothstep(0.0, 0.1, t) * (1.0 - smoothstep(0.08, 0.26, t))
+			var u := clampf((t - 0.07) / (ROLL_SPIN - 0.07), 0.0, 1.0)
+			var e := _ease_spin(u)
+			var tuck := sin(u * PI)
+			var kneel := smoothstep(ROLL_SPIN - 0.14, ROLL_SPIN, t) * (1.0 - smoothstep(ROLL_SPIN + 0.04, 1.0, t))
 			rig_direct = true
 			pivot = ROLL_PIVOT
-			var u := clampf(action_t / ROLL_SPIN, 0.0, 1.0)
-			var tuck := sin(u * PI)
 			ground_glue = true  # Höhe ergibt sich aus Bodenkontakt (siehe unten)
-			rig_scale = 1.0 - 0.2 * tuck  # zusammenrollen -> kein Eintauchen in den Boden
-			lean = lerpf(lean, -1.0, tuck)
-			head_tuck = 0.5 * tuck
-			# Hocke: setzt gegen Ende der Drehung ein (Füße greifen), klingt beim Aufrichten aus
-			var k_in := clampf((action_t - 0.45) / (ROLL_SPIN - 0.45), 0.0, 1.0)
-			var k_out := clampf((action_t - ROLL_SPIN) / (1.0 - ROLL_SPIN), 0.0, 1.0)
-			var kneel := k_in * k_in * (3.0 - 2.0 * k_in) * (0.5 + 0.5 * cos(k_out * PI))
-			if kneel > 0.0:
-				# tiefe Hocke: ein Bein vorn, eins hinten, Füße bleiben über dem Boden
-				hips_drop = 0.08 * kneel
-				lean = lerpf(lean, -0.35, kneel)
-				kl = lerpf(kl, -1.6, kneel)
-				kr = lerpf(kr, -1.4, kneel)
-				hl.x = lerpf(hl.x, 1.0, kneel)
-				hr.x = lerpf(hr.x, -0.3, kneel)
+			rig_scale = 1.0 - 0.18 * tuck  # zusammenrollen -> kein Eintauchen in den Boden
+			var ang := TAU * e
+			if back:
+				# Rückwärtsrolle: erst nach hinten absetzen, dann über die linke Schulter
+				roll_basis = Basis(Vector3(1.0, 0.0, -0.3).normalized(), ang)
+				hips_drop = 0.22 * dive
+				lean = lerpf(lean, 0.35, dive)
+				kl = lerpf(kl, -1.7, dive)
+				kr = lerpf(kr, -1.5, dive)
+				hl.x = lerpf(hl.x, 0.9, dive)
+				hr.x = lerpf(hr.x, 0.7, dive)
+			elif side != 0.0:
+				# Seitenrolle: in die Richtung eindrehen, über die äußere Schulter rollen, zurückdrehen
+				var turn := sin(clampf(t / (ROLL_SPIN + 0.12), 0.0, 1.0) * PI)
+				roll_basis = Basis(Vector3.UP, -side * 1.15 * turn) * Basis(Vector3(1.0, 0.0, 0.4 * side).normalized(), -ang)
+				bank += side * 0.5 * dive
+				hips_drop = 0.12 * dive
+				kl = lerpf(kl, -1.0, dive)
+				kr = lerpf(kr, -1.0, dive)
+			else:
+				# Vorwärtsrolle über die rechte Schulter, Kopf zur linken Seite weg
+				roll_basis = Basis(Vector3(1.0, 0.0, 0.35).normalized(), -ang)
+				lean = lerpf(lean, -0.75, dive)
+				hips_drop = 0.14 * dive
+				kl = lerpf(kl, -1.0, dive)
+				kr = lerpf(kr, -0.7, dive)
+				twist = 0.35 * tuck
+			lean = lerpf(lean, -1.05, tuck)
+			head_tuck = 0.55 * tuck
 			hl.x = lerpf(hl.x, 1.5, tuck)
 			hr.x = lerpf(hr.x, 1.3, tuck)
 			kl = lerpf(kl, -2.3, tuck)
 			kr = lerpf(kr, -2.2, tuck)
+			if kneel > 0.0:
+				# Hocke nach der Drehung: vorwärts ein Bein vor, rückwärts beide Knie tief, seitlich breit
+				hips_drop = 0.09 * kneel
+				lean = lerpf(lean, -0.45 if back else -0.32, kneel)
+				if back:
+					hl.x = lerpf(hl.x, 0.95, kneel)
+					hr.x = lerpf(hr.x, 0.55, kneel)
+					kl = lerpf(kl, -1.75, kneel)
+					kr = lerpf(kr, -1.55, kneel)
+				else:
+					hl.x = lerpf(hl.x, 1.0, kneel)
+					hr.x = lerpf(hr.x, -0.3, kneel)
+					kl = lerpf(kl, -1.6, kneel)
+					kr = lerpf(kr, -1.4, kneel)
+				if side != 0.0:
+					hl.z = lerpf(hl.z, -0.25, kneel)
+					hr.z = lerpf(hr.z, 0.25, kneel)
+					bank += -side * 0.18 * kneel
+			# Freie Hände: beim Abtauchen zum Boden, in der Drehung an die Brust, in der Hocke zur Balance raus
+			var fl := Vector3(-0.17, 0.08, -0.22)
+			var fr := Vector3(0.17, 0.08, -0.22)
+			var reach := Vector3(0.0, -0.32, -0.36) if not back else Vector3(0.0, -0.42, 0.12)
+			fl = fl.lerp(Vector3(-0.2, 0.0, 0.0) + reach, dive)
+			fr = fr.lerp(Vector3(0.2, 0.0, 0.0) + reach, dive)
+			fl = fl.lerp(Vector3(-0.42, 0.02, -0.22), kneel)
+			fr = fr.lerp(Vector3(0.36, -0.12, -0.3), kneel)
+			free_hands = [fl, fr]
 			# Klinge zeigt zur Seite (parallel zur Drehachse) -> sticht nie in den Boden
-			var wb := clampf(action_t * 12.0, 0.0, 1.0) * (1.0 - smoothstep(0.82, 1.0, action_t))
+			var wb := clampf(t * 12.0, 0.0, 1.0) * (1.0 - smoothstep(0.82, 1.0, t))
 			grip = grip.lerp(Vector3(0.3, 0.02, -0.08), wb)
 			sdir = sdir.lerp(Vector3(1.0, -0.05, 0.12), wb)
 			sflat = Vector3(0, 1, 0)
 			sh_pos = sh_pos.lerp(Vector3(-0.3, 0.06, -0.04), wb)
 			sh_front = sh_front.lerp(Vector3(-1.0, 0.0, -0.1), wb)
 			hand_f = 7.0  # Waffe schnell anlegen, sonst sticht sie beim Abtauchen in den Boden
+		&"climb":
+			# An der Wand: Hände greifen abwechselnd nach oben, Füße steigen gegengleich
+			var m := clampf(climb_move.length(), 0.0, 1.0)
+			var la := sin(climb_phase) * m
+			var lb := absf(cos(climb_phase)) * m
+			hips_z = -0.1
+			lean = -0.14
+			bank = 0.0
+			hips_drop = 0.04
+			hl = Vector3(0.75 + 0.42 * la, 0.0, -0.14)
+			hr = Vector3(0.75 - 0.42 * la, 0.0, 0.14)
+			kl = -0.55 - 1.05 * hl.x
+			kr = -0.55 - 1.05 * hr.x
+			var sx := climb_move.x * 0.07
+			hand_ovr = 1.0
+			hand_l_local = Vector3(-0.24 + sx, 1.56 - 0.17 * la - 0.05 * lb, -0.37)
+			hand_r_local = Vector3(0.24 + sx, 1.56 + 0.17 * la - 0.05 * lb, -0.37)
+			head_tuck = -0.3
+			hand_f = 6.0
+		&"ledge_up":
+			# Hochziehen an einer Kante: greifen, hochdrücken, Knie auf die Kante, aufstehen
+			var t := action_t
+			var lp: Vector3 = global_transform.affine_inverse() * ledge_world
+			var release := smoothstep(0.55, 0.82, t)
+			hand_ovr = 1.0 - release
+			hand_l_local = lp + Vector3(-0.23, 0.03, -0.07)
+			hand_r_local = lp + Vector3(0.23, 0.03, -0.07)
+			var push := smoothstep(0.1, 0.45, t) * (1.0 - smoothstep(0.7, 1.0, t))
+			var knee_up := smoothstep(0.35, 0.55, t) * (1.0 - smoothstep(0.72, 0.95, t))
+			hips_z = -0.12 * (1.0 - release)
+			lean = lerpf(lean, -0.55, push)
+			hips_drop = 0.1 * knee_up
+			hl.x = lerpf(lerpf(hl.x, 0.25, 1.0 - release), 0.5, knee_up)
+			kl = lerpf(lerpf(kl, -0.35, 1.0 - release), -1.2, knee_up)
+			hr.x = lerpf(lerpf(hr.x, 0.1, 1.0 - release), 1.55, knee_up)
+			kr = lerpf(lerpf(kr, -0.25, 1.0 - release), -2.3, knee_up)
+			head_tuck = -0.2 * (1.0 - push)
+			hand_f = 6.0
+		&"swim", &"water_enter":
+			# Brustschwimmen; im Stand Wassertreten. Kein Tauchen: Kopf und Schultern bleiben über Wasser.
+			var m := clampf(swim_amount, 0.0, 1.0)
+			var u := fposmod(swim_phase / TAU, 1.0)
+			rig_x = -0.8 * m - 0.1 * (1.0 - m)
+			pivot = 1.0
+			lean = -0.05
+			bank = 0.0
+			head_tuck = -0.95 * m - 0.1
+			# Arme: Gleiten -> nach außen ziehen -> unter die Brust -> nach vorn strecken
+			var stroke := _swim_arm(u)
+			var tread := Vector3(0.34, 0.06 + 0.04 * sin(swim_phase), -0.22 + 0.1 * cos(swim_phase))
+			var ar := tread.lerp(stroke, m)
+			var al := Vector3(-ar.x, ar.y, ar.z)
+			if m < 1.0:
+				al = Vector3(-0.34, 0.06 + 0.04 * sin(swim_phase + PI), -0.22 + 0.1 * cos(swim_phase + PI)).lerp(al, m)
+			# Beine: Froschbeinschlag beim Schwimmen, Radfahren beim Wassertreten
+			var bend := smoothstep(0.35, 0.62, u) * (1.0 - smoothstep(0.72, 0.9, u))
+			var fl_x := 0.1 + 0.75 * bend
+			var fk := -0.15 - 1.75 * bend
+			var spread := 0.08 + 0.3 * bend
+			hl = Vector3(lerpf(0.45 + 0.35 * sin(swim_phase), fl_x, m), 0.0, lerpf(-0.06, -spread, m))
+			hr = Vector3(lerpf(0.45 - 0.35 * sin(swim_phase), fl_x, m), 0.0, lerpf(0.06, spread, m))
+			kl = lerpf(-0.9 - 0.45 * cos(swim_phase), fk, m)
+			kr = lerpf(-0.9 + 0.45 * cos(swim_phase), fk, m)
+			if action == &"water_enter":
+				# Eintauchen: Arme hoch, Beine geschlossen, dann Arme zur Seite ausbreiten und auftreiben
+				var t := action_t
+				var up := 1.0 - smoothstep(0.25, 0.6, t)
+				var out := smoothstep(0.25, 0.55, t) * (1.0 - smoothstep(0.7, 1.0, t))
+				var fade := 1.0 - smoothstep(0.7, 1.0, t)
+				ar = ar.lerp(Vector3(0.12, 0.95, -0.08), up).lerp(Vector3(0.55, 0.35, -0.12), out)
+				al = al.lerp(Vector3(-0.12, 0.95, -0.08), up).lerp(Vector3(-0.55, 0.35, -0.12), out)
+				hl = hl.lerp(Vector3(0.12, 0.0, -0.03), fade)
+				hr = hr.lerp(Vector3(-0.05, 0.0, 0.03), fade)
+				kl = lerpf(kl, -0.2, fade)
+				kr = lerpf(kr, -0.25, fade)
+				rig_x = lerpf(rig_x, 0.0, fade)
+			free_hands = [al, ar]
+			hand_f = 5.0
 		&"bash":
 			var w := sin(clampf(action_t * 2.2, 0.0, 1.0) * PI)
 			sh_pos = Vector3(-0.04, 0.04, -0.40 - 0.22 * w)
@@ -838,7 +1077,7 @@ func tick(delta: float) -> void:
 	if action != &"swing":
 		_trail.emitting = false
 
-	if block_amount > 0.0 and has_shield:
+	if block_amount > 0.0 and has_shield and off_item == &"shield" and off_p >= 1.5:
 		var b := block_amount * block_amount * (3.0 - 2.0 * block_amount)
 		sh_pos = sh_pos.lerp(Vector3(-0.06, 0.06, -0.42), b)
 		sh_front = sh_front.lerp(Vector3(0.05, 0.12, -1.0), b)
@@ -850,7 +1089,7 @@ func tick(delta: float) -> void:
 		kl -= 0.22 * b * (1.0 - wm)
 		kr -= 0.18 * b * (1.0 - wm)
 		hand_f = maxf(hand_f, 7.0)
-	elif block_amount > 0.0 and offhand and action != &"swing":
+	elif block_amount > 0.0 and action != &"swing" and weapon_p >= 1.5:
 		# ohne Schild: Klinge quer vor den Körper, Laternenstab zurück
 		var b := block_amount * block_amount * (3.0 - 2.0 * block_amount)
 		grip = grip.lerp(Vector3(0.24, 0.12, -0.36), b)
@@ -896,9 +1135,10 @@ func tick(delta: float) -> void:
 		_sp_pivot.reset(pivot)
 		pv = pivot
 	# Drehung um einen Punkt in Körperhöhe pv statt um den Rig-Ursprung
-	var rb := Basis.from_euler(Vector3(rx, 0.0, bk)).scaled(Vector3.ONE * rig_scale)
+	var rb := (roll_basis * Basis.from_euler(Vector3(rx, 0.0, bk))).scaled(Vector3.ONE * rig_scale)
 	rig.transform = Transform3D(rb, Vector3(0, ry - RIG_Y + pv, 0) + rb * Vector3(0, RIG_Y - pv, 0))
 	hips.position.y = HIPS_Y + hips_y - dr
+	hips.position.z = _u(_sp_hz, delta, hips_z)
 	hips.rotation.y = lower_yaw
 	chest.rotation = Vector3(ln, tw - lower_yaw, -bk * 0.5)
 	hip_l.rotation = hl
@@ -924,20 +1164,55 @@ func tick(delta: float) -> void:
 	if absf(_glue) > 0.0005 or ground_glue:
 		rig.position.y += _glue
 
-	# Stoff schwingt mit Trägheit nach
-	var cloth_drive := minf(s, 1.2)
-	var tf: float = _u(_sp_tab_f, delta, maxf(hl.x, hr.x) * 0.55 + 0.05 - ln * 0.3 + clampf(accel * 0.02, -0.4, 0.4))
-	var tb: float = _u(_sp_tab_b, delta, minf(hl.x, hr.x) * 0.55 - 0.05 - 0.3 * cloth_drive - ln * 0.3 + clampf(accel * 0.02, -0.4, 0.4))
-	var sc: float = _u(_sp_scarf, delta, 0.25 + 0.9 * cloth_drive - vertical_velocity * 0.06 + clampf(accel * 0.03, -0.5, 0.5))
-	if tabard_front:
-		tabard_front.rotation.x = tf
-		tabard_back.rotation.x = tb
-		scarf_tail.rotation = Vector3(sc + sin(_time * 8.0) * 0.08 * cloth_drive, 0.0, bk * 1.5)
-	_update_lantern(delta, s, accel, yaw_rate)
+	# --- Ausrüstung platzieren: in der Hand, auf dem Weg oder an Gürtel/Rücken ---
+	var cb := chest.global_basis
+	var chest_xf := chest.global_transform
+	var to_chest := chest.transform.affine_inverse()  # Hüft- -> Brust-Koordinaten
+	# natürliche Arme (Brust-Koordinaten): hängen locker, schwingen gegengleich zu den Beinen, beim Sprint angewinkelt
+	var sw := sin(_phase) * (0.11 + 0.1 * sprint) * minf(s, 1.0) * wm
+	var rest_r := Vector3(0.25 + 0.03 * sprint, -0.14 + 0.16 * sprint + absf(sw) * 0.35, -0.03 - sw - 0.08 * sprint)
+	var rest_l := Vector3(-0.25 - 0.03 * sprint, -0.14 + 0.16 * sprint + absf(sw) * 0.35, -0.03 + sw - 0.08 * sprint)
+	rest_r.y += breathe * 0.006 * (1.0 - wm)
+	rest_l.y += breathe * 0.006 * (1.0 - wm)
+	# in der Luft: Arme etwas raus zur Balance
+	rest_r = rest_r.lerp(Vector3(0.37, 0.02, -0.08), w_air * 0.8)
+	rest_l = rest_l.lerp(Vector3(-0.37, 0.02, -0.08), w_air * 0.8)
+	if free_hands != null:
+		rest_l = free_hands[0]
+		rest_r = free_hands[1]
+	var rest_r_w: Vector3 = chest_xf * (_u(_sp_rest_r, delta, rest_r) as Vector3)
+	var rest_l_w: Vector3 = chest_xf * (_u(_sp_rest_l, delta, rest_l) as Vector3)
 
-	sword.transform = Transform3D(_basis_from(-d.normalized(), f.normalized()), g)
+	# Waffe (rechte Hand)
+	var drawn_sword := Transform3D(_basis_from(-d.normalized(), f.normalized()), g)
+	var stow_sword: Transform3D = to_chest * _sword_stow_xf()
+	var draw_ctrl := stow_sword.origin + stow_sword.basis.z * weapon_length * 0.9
+	if weapon_def and weapon_def.stow == &"back":
+		draw_ctrl = Vector3(0.32, 0.72, 0.12)  # über die rechte Schulter nach vorn ziehen
+	sword.transform = _carry(stow_sword, drawn_sword, _out(weapon_p), draw_ctrl)
+	var hand_r: Vector3 = rest_r_w.lerp(sword.global_transform * Vector3(0, 0, 0.02), _reach(weapon_p))
+
+	# Schild: am Arm oder auf dem Rücken
+	var hand_l: Vector3 = rest_l_w
 	if has_shield:
-		shield.transform = Transform3D(_basis_from(-sf.normalized(), Vector3.UP, true), sp)
+		var held_sh := Transform3D(_basis_from(-sf.normalized(), Vector3.UP, true), sp)
+		var back_sh := Transform3D(_basis_from(-Vector3(0.0, 0.12, 1.0).normalized(), Vector3.UP, true), SHIELD_BACK)
+		var sp_t := off_p if off_item == &"shield" else 0.0
+		shield.transform = _carry(back_sh, held_sh, _out(sp_t), Vector3(-0.42, 0.5, 0.08))
+		if off_item == &"shield":
+			hand_l = rest_l_w.lerp(shield.global_transform * Vector3(0, 0, 0.07), _reach(sp_t))
+	# Licht: Gürtellaterne (rechte Hüfte) oder Laternenstab (Rücken); vorgehalten in der linken Hand
+	var lp_t := off_p if off_item == &"light" else 0.0
+	_light_out = _out(lp_t)
+	if _light_kind == &"belt":
+		var to_body := global_transform.affine_inverse()
+		var belt: Transform3D = to_body * hips.global_transform * Transform3D(Basis(Vector3.UP, -0.35), LANTERN_BELT)
+		var held_l: Transform3D = to_body * chest_xf * Transform3D(Basis.IDENTITY, LANTERN_HELD + Vector3(0, sin(_phase * 2.0) * 0.01 * wm, 0))
+		var ctrl: Vector3 = (to_body * chest_xf) * Vector3(0.05, 0.05, -0.3)
+		_lantern_hook.transform = _carry(belt, held_l, _light_out, ctrl)
+		if off_item == &"light":
+			hand_l = rest_l_w.lerp(_lantern_hook.global_position + _lantern_hook.global_basis.y * 0.03, _reach(lp_t))
+		_lantern_offset = Vector3(0.3, 0.2, 0.0).lerp(Vector3(0.0, 0.05, -0.12), _light_out)
 	elif offhand:
 		# Laternenstab: vor dem Körper gehalten, Stab fast senkrecht; Rolle/Stoß/Block nutzen die Schild-Pose
 		var hold_t := OFFHAND_HOLD + Vector3(0, sin(_phase * 2.0) * 0.012 * wm, sin(_phase + PI) * 0.04 * minf(s, 1.0) * wm)
@@ -948,21 +1223,53 @@ func tick(delta: float) -> void:
 		var pole_up: Vector3 = _u(_sp_off_up, delta, up_t)
 		pole_up = pole_up.normalized()
 		var pz := (Vector3(0, 0, 1) - pole_up * pole_up.z).normalized()
-		offhand.transform = Transform3D(_basis_from(pz, pole_up, true), hold)
+		var held_p := Transform3D(_basis_from(pz, pole_up, true), hold)
+		var bu := Vector3(-0.55, 0.82, 0.12).normalized()
+		var back_p := Transform3D(_basis_from((Vector3(0, 0, 1) - bu * bu.z).normalized(), bu, true), POLE_BACK)
+		offhand.transform = _carry(back_p, held_p, _light_out, Vector3(-0.42, 0.45, 0.05))
+		if off_item == &"light":
+			hand_l = rest_l_w.lerp(offhand.global_position, _reach(lp_t))
+
+	# Zweithand-Dolch: in der linken Hand (folgt der Schild-Pose), sonst hinten am Gürtel
+	if off_dagger:
+		var dp_t := off_p if off_item == &"dagger" else 0.0
+		off_jab = move_toward(off_jab, 0.0, delta * 5.0)
+		var jab := sin(clampf(1.0 - off_jab, 0.0, 1.0) * PI) if off_jab > 0.0 else 0.0
+		var dpos := sp + Vector3(0.06, 0.02, -0.06) + Vector3(0.1, 0.05, -0.3) * jab
+		var ddir := (sf + Vector3(0.25, 0.9, 0.0)).normalized().lerp(Vector3(0.15, 0.1, -1.0).normalized(), jab).normalized()
+		var held_d := Transform3D(_basis_from(-ddir, Vector3(1, 0, 0)), dpos)
+		var stow_d: Transform3D = to_chest * _off_dagger_stow_xf()
+		off_dagger.transform = _carry(stow_d, held_d, _out(dp_t), Vector3(-0.35, -0.05, 0.25))
+		if off_item == &"dagger":
+			hand_l = rest_l_w.lerp(off_dagger.global_transform * Vector3(0, 0, 0.03), _reach(dp_t))
+	# Beidhändig: linke Hand greift den Schaft hinter der rechten
+	var two_t := 1.0 if two_hand and off_item == &"" and action != &"roll" and weapon_p >= 1.6 and weapon_def != null else 0.0
+	_two_w = move_toward(_two_w, two_t, delta * 4.0)
+	if _two_w > 0.0:
+		var shaft_pt: Vector3 = sword.global_transform * Vector3(0, 0, weapon_def.two_hand_offset)
+		var k := _two_w * _two_w * (3.0 - 2.0 * _two_w)
+		hand_l = hand_l.lerp(shaft_pt, k)
+
+	# Klettern/Hochziehen: Hände an Wand bzw. Kante
+	if hand_ovr > 0.0:
+		hand_l = hand_l.lerp(global_transform * hand_l_local, hand_ovr)
+		hand_r = hand_r.lerp(global_transform * hand_r_local, hand_ovr)
 
 	# --- Arm-IK ---
-	var cb := chest.global_basis
 	# Ellbogen zeigt nach außen-hinten; greift die Hand quer vor den Körper, wandert er nach vorn
 	var cross := clampf((0.12 - g.x) / 0.3, 0.0, 1.0)
 	var pole_r := Vector3(0.7, -1.0, 0.6).lerp(Vector3(0.35, -0.8, -0.9), cross)
-	_solve_arm(arm_up_r, arm_lo_r, chest.global_transform * SHOULDER_R, sword.global_transform * Vector3(0, 0, 0.02), cb * pole_r)
-	if has_shield:
-		_solve_arm(arm_up_l, arm_lo_l, chest.global_transform * SHOULDER_L, shield.global_transform * Vector3(0, 0, 0.07), cb * Vector3(-0.8, -1.0, 0.4))
-	elif offhand:
-		_solve_arm(arm_up_l, arm_lo_l, chest.global_transform * SHOULDER_L, offhand.global_position, cb * Vector3(-0.8, -1.0, 0.4))
-	else:
-		var swing_l := sin(_phase) * 0.08 * minf(s, 1.0) * wm
-		_solve_arm(arm_up_l, arm_lo_l, chest.global_transform * SHOULDER_L, chest.global_transform * Vector3(-0.27, 0.0, -0.05 + swing_l), cb * Vector3(-0.8, -1.0, 0.4))
+	var pole_l := Vector3(-0.8, -1.0, 0.4)
+	var free_r := 1.0 - _reach(weapon_p)
+	pole_r = pole_r.lerp(Vector3(0.35, -0.4, 1.0), free_r)  # freier Arm: Ellbogen nach hinten
+	if off_item == &"" and _two_w < 0.5:
+		pole_l = Vector3(-0.35, -0.4, 1.0)
+	if hand_ovr > 0.0:
+		pole_r = pole_r.lerp(Vector3(0.9, -1.0, 0.2), hand_ovr)
+		pole_l = pole_l.lerp(Vector3(-0.9, -1.0, 0.2), hand_ovr)
+	_solve_arm(arm_up_r, arm_lo_r, chest_xf * SHOULDER_R, hand_r, cb * pole_r)
+	_solve_arm(arm_up_l, arm_lo_l, chest_xf * SHOULDER_L, hand_l, cb * pole_l)
+	_update_lantern(delta, s, accel, yaw_rate)
 
 	if _trail.emitting or _trail.has_points():
 		var pts := sword_points()
@@ -998,6 +1305,14 @@ func _lowest_body_point() -> float:
 		chest.global_transform * Vector3(0, 0.45, 0.24), chest.global_transform * Vector3(0, 0.3, -0.2),
 		hips.global_transform * Vector3(0, -0.08, 0.15), hips.global_transform * Vector3(0, -0.08, -0.15),
 	]
+	# Hände/Unterarme (Handstütze beim Abtauchen) und die weggesteckte Waffe samt Scheide
+	for al: Node3D in [arm_lo_l, arm_lo_r]:
+		pts.append(al.global_transform * Vector3(0, -LOWER_ARM, 0))
+		pts.append(al.global_position)
+	if weapon_p < 1.0:
+		var sx: Transform3D = hips.global_transform * _sword_stow_xf()
+		pts.append(sx * Vector3(0, 0, -weapon_length))
+		pts.append(sx * Vector3(0, 0, 0.12))
 	var lo := 99.0
 	for pt in pts:
 		lo = minf(lo, (inv * pt).y)
@@ -1095,6 +1410,66 @@ func _seg_basis(along: Vector3, side_hint: Vector3) -> Basis:
 	x = x.normalized()
 	var z := x.cross(y)
 	return Basis(x, y, z)
+
+
+## Dreh-Verlauf der Rolle (u = 0..1 innerhalb der Drehung): kräftig rein, weich raus.
+func _ease_spin(u: float) -> float:
+	return lerpf(u * u * (3.0 - 2.0 * u), 1.0 - pow(1.0 - u, 2.0), 0.5)
+
+
+## Hand (rechts, Brust-Koordinaten) im Brustschwimm-Zyklus u = 0..1.
+func _swim_arm(u: float) -> Vector3:
+	var keys: Array[Vector3] = [Vector3(0.1, 0.92, -0.2), Vector3(0.45, 0.72, -0.28), Vector3(0.33, 0.42, -0.38), Vector3(0.1, 0.55, -0.32)]
+	var ts: Array[float] = [0.0, 0.3, 0.52, 0.72, 1.0]
+	var i := 0
+	while i < 3 and u > ts[i + 1]:
+		i += 1
+	var w := (u - ts[i]) / (ts[i + 1] - ts[i])
+	return _cr(keys[(i + 3) % 4], keys[i], keys[(i + 1) % 4], keys[(i + 2) % 4], w)
+
+
+## Ziehen/Wegstecken voranbringen. Die linke Hand steckt erst das alte Teil weg, bevor sie das neue greift.
+func _update_draw(delta: float) -> void:
+	weapon_p = move_toward(weapon_p, 2.0 if want_weapon else 0.0, delta * 2.0 / 0.55 * draw_speed)
+	var tgt := want_off
+	if tgt == &"shield" and not has_shield:
+		tgt = &""
+	if tgt == &"light" and _light_kind == &"":
+		tgt = &""
+	if tgt == &"dagger" and not has_off_dagger:
+		tgt = &""
+	var rate := delta * 2.0 / 0.6 * draw_speed
+	if off_item != tgt:
+		if off_item != &"" and off_p > 0.0:
+			off_p = move_toward(off_p, 0.0, rate)
+		else:
+			off_item = tgt
+			off_p = 0.0
+	elif off_item != &"":
+		off_p = move_toward(off_p, 2.0, rate)
+
+
+## Hand -> Griff: 0..1 im ersten Abschnitt
+func _reach(p: float) -> float:
+	var x := clampf(p, 0.0, 1.0)
+	return x * x * (3.0 - 2.0 * x)
+
+
+## Teil -> Hand: 0..1 im zweiten Abschnitt
+func _out(p: float) -> float:
+	var x := clampf(p - 1.0, 0.0, 1.0)
+	return x * x * (3.0 - 2.0 * x)
+
+
+## Teil zwischen Ablage a und Hand b bewegen (Bogen über ctrl), Drehung folgt etwas verzögert.
+func _carry(a: Transform3D, b: Transform3D, e: float, ctrl: Vector3) -> Transform3D:
+	if e <= 0.0:
+		return a
+	if e >= 1.0:
+		return b
+	var p := a.origin.lerp(ctrl, e).lerp(ctrl.lerp(b.origin, e), e)
+	var q := a.basis.get_rotation_quaternion().slerp(b.basis.get_rotation_quaternion(), smoothstep(0.15, 1.0, e))
+	return Transform3D(Basis(q), p)
 
 
 func _ease_roll(t: float) -> float:

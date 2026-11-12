@@ -9,7 +9,7 @@ extends RefCounted
 ## Erster und letzter Key (t=0 und t=1) sind immer die aktuelle Grundhaltung und stehen nicht in der Datei.
 
 const DIR := "res://data/anims/"
-const CLIPS := ["swing_0", "swing_1", "heavy", "thrust"]
+const CLIPS := ["swing_0", "swing_1", "heavy", "thrust", "sweep", "hook", "bind", "sever", "rake", "flurry"]
 
 static var _cache := {}
 
@@ -155,6 +155,81 @@ static func builtin(clip_name: String) -> Dictionary:
 				[0.62, [0.14, 0.15, -0.52], [-0.04, 0.03, -1], [0, 1, 0], 0.12, -0.26, 0.1],
 				[0.82, [0.26, 0.12, -0.36], [-0.12, 0.4, -0.9], [0, 1, 0], 0.0, -0.08, 0.03],
 			]
+		"sweep":
+			# Fegen: tief rechts ausholen, flach und weit nach links durchziehen, in die Knie
+			d.label = "Low Sweep (combo)"
+			d.duration = 1.0
+			d.hit = 0.46
+			d.trail = [0.36, 0.62]
+			rows = [
+				[0.30, [0.46, -0.06, 0.14], [0.8, -0.25, 0.55], [0, 1, 0], -0.75, 0.12, 0.12],
+				[0.46, [0.12, -0.18, -0.56], [0.05, -0.4, -1], [0, 1, 0], 0.0, -0.3, 0.24],
+				[0.60, [-0.42, -0.12, -0.22], [-1, -0.32, 0.15], [0, 1, 0], 0.75, -0.28, 0.22],
+				[0.80, [-0.08, 0.04, -0.4], [-0.6, 0.2, -0.75], [0, 1, 0], 0.35, -0.1, 0.06],
+			]
+		"hook":
+			# Schattenranke: linke Hand schnellt vor (rechte Schulter zurück), dann kräftiges Zurückreißen
+			d.label = "Shadow Hook (combo)"
+			d.duration = 1.0
+			d.hit = 0.4
+			d.trail = [1.1, 1.2]
+			rows = [
+				[0.24, [0.36, -0.02, 0.1], [0.3, 0.55, 0.6], [0, 1, 0], -0.5, -0.05, 0.02, [-0.08, 0.26, -0.6]],
+				[0.40, [0.38, -0.02, 0.12], [0.3, 0.55, 0.6], [0, 1, 0], -0.55, -0.14, 0.06, [-0.1, 0.24, -0.66]],
+				[0.58, [0.34, 0.04, -0.02], [0.2, 0.6, 0.35], [0, 1, 0], 0.4, 0.14, 0.08, [-0.4, 0.06, 0.06]],
+				[0.80, [0.3, 0.1, -0.2], [0, 0.6, -0.7], [0, 1, 0], 0.1, 0.04, 0.03, [-0.3, 0.1, -0.24]],
+			]
+		"bind":
+			# Binden: Klinge hoch an die gegnerische drücken und dort halten
+			d.label = "Bind (combo)"
+			d.duration = 0.9
+			d.hit = 0.42
+			d.trail = [0.34, 0.46]
+			rows = [
+				[0.26, [0.3, 0.3, -0.08], [0.2, 0.85, -0.45], [1, 0, 0], -0.3, 0.05, 0.0],
+				[0.42, [0.04, 0.28, -0.55], [-0.12, 0.45, -1], [1, 0, 0], 0.12, -0.2, 0.08],
+				[0.64, [0.0, 0.25, -0.52], [-0.18, 0.38, -1], [1, 0, 0], 0.16, -0.22, 0.1],
+				[0.84, [0.2, 0.15, -0.4], [0, 0.5, -0.8], [0, 1, 0], 0.05, -0.08, 0.03],
+			]
+		"sever":
+			# Durchtrennen: hoch über der linken Schulter ausholen, schwer diagonal nach rechts unten
+			d.label = "Sever (combo finisher)"
+			d.duration = 1.25
+			d.hit = 0.48
+			d.trail = [0.38, 0.64]
+			rows = [
+				[0.34, [-0.18, 0.52, 0.04], [-0.5, 0.65, 0.55], [0, 1, 0.3], 0.62, 0.12, 0.0],
+				[0.48, [0.06, 0.26, -0.58], [0.25, 0.2, -1], [0, 1, 0.2], 0.0, -0.3, 0.12],
+				[0.62, [0.42, -0.06, -0.24], [0.8, -0.5, -0.3], [0, 1, 0], -0.55, -0.35, 0.2],
+				[0.82, [0.32, 0.1, -0.35], [0.2, 0.5, -0.7], [0, 1, 0], -0.2, -0.1, 0.06],
+			]
+		"rake":
+			# Reißen (Axtbart): weit vorn einhaken, dann ruckartig zurück zur Hüfte ziehen
+			d.label = "Beard Hook (greataxe)"
+			d.duration = 1.05
+			d.hit = 0.44
+			d.trail = [0.3, 0.46]
+			rows = [
+				[0.28, [0.22, 0.42, -0.2], [0.05, 0.8, -0.6], [1, 0, 0], -0.2, 0.05, 0.0],
+				[0.44, [0.1, 0.2, -0.6], [0.0, -0.1, -1], [1, 0, 0], 0.1, -0.28, 0.1],
+				[0.6, [0.3, 0.02, 0.0], [0.15, -0.3, -1], [1, 0, 0], -0.35, 0.15, 0.06],
+				[0.82, [0.28, 0.1, -0.22], [0.05, 0.5, -0.85], [0, 1, 0], -0.1, 0.0, 0.02],
+			]
+		"flurry":
+			# Stichfolge: drei kurze Stiche, dazwischen kaum zurückziehen
+			d.label = "Flurry (dagger)"
+			d.duration = 1.0
+			d.hit = 0.3
+			d.trail = [0.24, 0.66]
+			rows = [
+				[0.2, [0.28, 0.1, 0.0], [0.05, 0.1, -1], [0, 1, 0], -0.35, 0.0, 0.02],
+				[0.3, [0.12, 0.15, -0.52], [-0.05, 0.05, -1], [0, 1, 0], 0.1, -0.22, 0.08],
+				[0.38, [0.26, 0.08, -0.12], [0.05, 0.1, -1], [0, 1, 0], -0.25, -0.1, 0.06],
+				[0.46, [0.08, 0.04, -0.54], [-0.1, -0.05, -1], [0, 1, 0], 0.15, -0.26, 0.1],
+				[0.54, [0.26, 0.16, -0.12], [0.05, 0.12, -1], [0, 1, 0], -0.25, -0.12, 0.06],
+				[0.62, [0.14, 0.22, -0.55], [-0.02, 0.12, -1], [0, 1, 0], 0.12, -0.26, 0.1],
+				[0.82, [0.26, 0.12, -0.36], [-0.12, 0.4, -0.9], [0, 1, 0], 0.0, -0.08, 0.03],
+			]
 		_:
 			d.label = "Heavy Strike"
 			d.duration = 1.2
@@ -168,7 +243,19 @@ static func builtin(clip_name: String) -> Dictionary:
 			]
 	var keys: Array = []
 	for r in rows:
+		var shp: Array = r[7] if r.size() > 7 else [sh.x, sh.y, sh.z]
 		keys.append({"t": r[0], "grip": r[1], "dir": r[2], "flat": r[3], "twist": r[4], "lean": r[5], "drop": r[6],
-			"shield": [sh.x, sh.y, sh.z], "shield_front": [shf.x, shf.y, shf.z]})
+			"shield": shp, "shield_front": [shf.x, shf.y, shf.z]})
 	d.keys = keys
-	return _from_json(d)
+	var c := _from_json(d)
+	# Sicherheit: Griff und Schildhand bleiben in Armreichweite (sonst reißt die Hand von der Waffe ab)
+	for k in c.keys:
+		k.grip = _in_reach(k.grip, ShadowBody.SHOULDER_R)
+		k.shield = _in_reach(k.shield, ShadowBody.SHOULDER_L)
+	return c
+
+
+static func _in_reach(p: Vector3, shoulder: Vector3) -> Vector3:
+	var max_r := ShadowBody.UPPER_ARM + ShadowBody.LOWER_ARM - 0.01
+	var v := p - shoulder
+	return shoulder + v.limit_length(max_r)

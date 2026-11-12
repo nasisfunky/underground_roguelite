@@ -140,6 +140,7 @@ func _physics_process(delta: float) -> void:
 	var hv := Vector3(velocity.x, 0, velocity.z)
 	hv = hv.move_toward(desired + _knock, 40.0 * delta)
 	_knock = _knock.move_toward(Vector3.ZERO, 18.0 * delta)
+	hv = _forced_velocity(hv, delta)
 	velocity.x = hv.x
 	velocity.z = hv.z
 	if not is_on_floor():
@@ -219,8 +220,13 @@ func _on_hit(_info: DamageInfo, _dir: Vector3) -> void:
 	if state == S.IDLE:
 		_player = Game.nearest_player(global_position, 40.0)
 		_set_state(S.CHASE)
-	if poise <= 0.0 and state != S.DEAD:
+	if poise <= 0.0 and state != S.DEAD and not (state == S.STAGGER and _stagger_len - state_t > 0.55):
 		_stagger(0.55)
+
+
+func hold(duration: float) -> void:
+	if state != S.DEAD:
+		_stagger(duration)
 
 
 func on_parried(_by: Node3D) -> void:

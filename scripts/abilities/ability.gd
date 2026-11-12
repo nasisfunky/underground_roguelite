@@ -9,6 +9,7 @@ var cooldown := 5.0
 var cooldown_left := 0.0
 var stamina_cost := 0.0
 var needs_target := false
+var needs_shield := false  ## nur mit Schild am Arm (nicht mit vorgehaltenem Licht)
 var snap_to_target := true  ## dreht sich beim Auslösen in Kamerarichtung
 var cancel_at := 0.5  ## ab hier darf eine Rolle abbrechen
 var duration := 0.6

@@ -91,12 +91,12 @@ func _build_world() -> void:
 	var stone := LowPoly.mat(Color(0.13, 0.17, 0.17))
 	var stone2 := LowPoly.mat(Color(0.11, 0.14, 0.145))
 	for x in range(-12, 13, 2):
-		for z in range(-10, 11, 2):
+		for z in range(-12, 13, 2):
 			var tile := LowPoly.mesh_instance(LowPoly.box(Vector3(1.94, 0.2, 1.94)), stone if (x + z) % 4 == 0 else stone2, self, Vector3(x, -0.1 - randf() * 0.015, z))
 			tile.rotation.y = randf_range(-0.01, 0.01)
 	# Säulen der alten Halle
 	for x in [-10.5, -3.5, 3.5, 10.5]:
-		for z in [-8.0, 8.0]:
+		for z in [-11.5, 11.5]:
 			LowPoly.mesh_instance(LowPoly.prism(0.75, 0.65, 9.0, 6), LowPoly.mat(Color(0.12, 0.15, 0.15)), self, Vector3(x, 4.5, z))
 	# Lichter: warme Laterne je Station, kalter Kristall dahinter (the Bright)
 	for s in STATIONS:
