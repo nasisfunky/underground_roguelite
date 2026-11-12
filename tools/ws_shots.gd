@@ -14,6 +14,28 @@ func _ready() -> void:
 	add_child(ws)
 	await _wait(20)
 	await _shot("clip")
+	# Ketten-Vorschau: Vorhand -> Rückhand, Bilder rund um den Übergang
+	for tc in ws.find_children("*", "TabContainer", true, false):
+		if tc.get_tab_count() >= 4:
+			tc.current_tab = 3  # Timing (Kombo-Anschluss)
+	ws.chain_next = "swing_1"
+	ws._chain_select.select(2)
+	ws._toggle_play()
+	var shots := 0
+	var was := 0
+	for i in 400:
+		await _wait(1)
+		if ws._chain_phase == 1 and was == 0:
+			await _shot("chain_0")
+			shots = 1
+		elif shots > 0 and shots < 4 and i % 6 == 0:
+			await _shot("chain_%d" % shots)
+			shots += 1
+		was = ws._chain_phase
+		if shots >= 4:
+			break
+	ws._toggle_play()
+	ws.chain_next = ""
 	ws._set_mode(ws.Mode.POSE)
 	await _wait(10)
 	await _shot("pose_idle")

@@ -29,6 +29,11 @@ var clip: Dictionary
 var t := 0.0
 var playing := false
 var speed := 1.0
+## Ketten-Vorschau: nach dem Anschlusspunkt dieses Clips folgt chain_next (wie im Spiel, mit echtem Übergang)
+var chain_next := ""
+var _chain_phase := 0  ## 0 = bearbeiteter Clip, 1 = Folgeclip
+var _chain_t := 0.0
+var _chain_select: OptionButton
 var springs_in_play := true
 var combat_stance := true
 var sel_key := -1
@@ -624,6 +629,28 @@ func _build_clip_panel(root: Control) -> void:
 	_param(cl, "c.hit", "Hit at (0-1)", 0.05, 0.95, 0.005, 1.0, "When the hit lands", 0.44)
 	_param(cl, "c.trail_a", "Trail from", 0.0, 1.0, 0.005, 1.0, "", 0.32)
 	_param(cl, "c.trail_b", "Trail to", 0.0, 1.0, 0.005, 1.0, "", 0.62)
+	_heading(cl, "Combo link")
+	_note(cl, "Link at: from here a buffered click starts the next combo attack (green line, 0 = automatic). Chain start: when this clip follows another attack, it starts here and skips part of its wind-up (purple line, 0 = from the start).")
+	_param(cl, "c.link", "Link at", 0.0, 0.98, 0.005, 1.0,
+		"From here a buffered click starts the next combo attack (the rest of this clip is skipped).\n0 = automatic: shortly after the last hit.", 0.0)
+	_param(cl, "c.chain_in", "Chain start", 0.0, 0.6, 0.005, 1.0,
+		"When this clip follows another attack directly, it starts here and skips part of its wind-up.\nIt blends in from wherever the previous attack was. Always before the first hit.", 0.0)
+	var crow := HBoxContainer.new()
+	cl.add_child(crow)
+	var cll := Label.new()
+	cll.text = "Preview: then play"
+	crow.add_child(cll)
+	_chain_select = OptionButton.new()
+	_chain_select.focus_mode = Control.FOCUS_NONE
+	_chain_select.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_chain_select.tooltip_text = "Play this clip and chain into another one exactly like in the game\n(starts at the link point, blends from the current pose)."
+	_chain_select.add_item("(nothing)")
+	for n in AnimLibrary.CLIPS:
+		_chain_select.add_item(AnimLibrary.clip(n).label)
+	_chain_select.item_selected.connect(func(i):
+		chain_next = "" if i == 0 else AnimLibrary.CLIPS[i - 1]
+		_chain_phase = 0)
+	crow.add_child(_chain_select)
 	var cb := CheckBox.new()
 	cb.text = "Start/end in combat stance"
 	cb.button_pressed = combat_stance
@@ -1097,6 +1124,8 @@ func _refresh_fields() -> void:
 	_set_param_ui("c.hit", clip.hit)
 	_set_param_ui("c.trail_a", clip.trail.x)
 	_set_param_ui("c.trail_b", clip.trail.y)
+	_set_param_ui("c.link", clip.get("link", 0.0))
+	_set_param_ui("c.chain_in", clip.get("chain_in", 0.0))
 	if _hold_end_cb:
 		_hold_end_cb.set_pressed_no_signal(clip.get("hold_end", false))
 	var has: bool = sel_key >= 0 and sel_key < clip.keys.size()
@@ -1132,6 +1161,8 @@ func _param_changed(key: String, v: float) -> void:
 				"hit": clip.hit = value
 				"trail_a": clip.trail = Vector2(value, clip.trail.y)
 				"trail_b": clip.trail = Vector2(clip.trail.x, value)
+				"link": clip.link = value
+				"chain_in": clip.chain_in = value
 			_mark_dirty()
 		"k", "b":
 			if sel_key < 0 or sel_key >= clip.keys.size():
@@ -1628,6 +1659,15 @@ func _do_undo() -> void:
 # Wiedergabe / Vorschau
 # ==================================================================
 
+## Anschlusspunkt des bearbeiteten Clips (wie im Spiel; Bausteine mit mehreren Treffern zählen den letzten).
+func link_point() -> float:
+	return ComboModule.link_point(clip, ComboModules.last_hit_for_clip(base_clip, clip.hit))
+
+
+func _chain_clip() -> String:
+	return AnimLibrary.resolve(chain_next, String(weapon_id))
+
+
 func _toggle_play() -> void:
 	playing = not playing
 	_pause_t = 0.0
@@ -1648,9 +1688,15 @@ func _pose_now(delta: float, exact: bool) -> void:
 			_hold(true, off)
 			if not (playing and _pause_t > 0.0):
 				body.action = &"swing"
-				body.swing_clip = clip_name
-				body.swing_index = AnimLibrary.CLIPS.find(base_clip)
-				body.action_t = t
+				if _chain_phase == 1 and chain_next != "":
+					body.swing_clip = _chain_clip()
+					body.swing_index = AnimLibrary.CLIPS.find(chain_next)
+					body.action_t = _chain_t
+				else:
+					body._swing_from = []  # bearbeiteter Clip beginnt immer in der Grundhaltung
+					body.swing_clip = clip_name
+					body.swing_index = AnimLibrary.CLIPS.find(base_clip)
+					body.action_t = t
 		Mode.POSE:
 			if pose_name.ends_with("_2h"):
 				off = &""
@@ -1691,12 +1737,28 @@ func _process(delta: float) -> void:
 			_time_label.text = "t = %.3f   (%.2f s of %.2f s)%s" % [t, t * clip.duration, clip.duration, "   *unsaved*" if dirty.get(_file_key(), false) else ""]
 			_timeline.queue_redraw()
 		return
+	if mode == Mode.CLIP and not playing:
+		_chain_phase = 0
 	if mode == Mode.CLIP and playing:
 		if _pause_t > 0.0:
 			_pause_t -= delta
+		elif _chain_phase == 1:
+			# Folgeclip der Ketten-Vorschau
+			var nc: Dictionary = AnimLibrary.clip(_chain_clip())
+			_chain_t += delta * speed / maxf(nc.duration, 0.05)
+			if _chain_t >= 1.0:
+				_chain_phase = 0
+				t = 0.0
+				_pause_t = 0.45 / speed
 		else:
 			t += delta * speed / maxf(clip.duration, 0.05)
-			if t >= 1.0:
+			if chain_next != "" and t >= link_point():
+				# wie im Spiel: am Anschlusspunkt beginnt der nächste Schlag (Einstieg + Übergang aus der aktuellen Haltung)
+				var nc: Dictionary = AnimLibrary.clip(_chain_clip())
+				_chain_phase = 1
+				_chain_t = ComboModule.chain_start(nc, nc.hit)
+				body.swing_serial += 1
+			elif t >= 1.0:
 				t = 0.0
 				_pause_t = 0.45 / speed
 	var exact := mode != Mode.CLIP or not (playing and springs_in_play)
@@ -1708,6 +1770,8 @@ func _process(delta: float) -> void:
 		var d := body.blade_clip_depth()
 		_clip_warn.text = "" if d < 0.02 else "Warning: blade/arm %d cm inside the body here" % roundi(d * 100.0)
 		_time_label.text = "t = %.3f   (%.2f s of %.2f s)%s" % [t, t * clip.duration, clip.duration, "   *unsaved*" if dirty.get(_file_key(), false) else ""]
+		if _chain_phase == 1 and playing:
+			_time_label.text = "chained into %s   t = %.3f" % [AnimLibrary.clip(_chain_clip()).label, _chain_t]
 		_timeline.queue_redraw()
 	elif dirty.get(_file_key(), false):
 		_status.text = "*unsaved changes*  (Ctrl+S)"
@@ -1788,13 +1852,38 @@ func _check_whole_clip() -> void:
 		if d > worst:
 			worst = d
 			worst_t = t
+	# Ketten-Vorschau gewählt: auch den Übergang in den Folgeclip prüfen
+	var worst_chain := 0.0
+	var worst_chain_t := 0.0
+	if chain_next != "":
+		t = link_point()
+		_pose_now(0.0, true)
+		var from: Array = body.swing_sample.duplicate(true)
+		var nc: Dictionary = AnimLibrary.clip(_chain_clip())
+		var t0 := ComboModule.chain_start(nc, nc.hit)
+		_chain_phase = 1
+		body._via_serial = -1
+		for i in 61:
+			_chain_t = lerpf(t0, 1.0, i / 60.0)
+			body._swing_from = from
+			body._swing_from_t = t0
+			body._serial_seen = body.swing_serial
+			_pose_now(0.0, true)
+			var d := body.blade_clip_depth()
+			if d > worst_chain:
+				worst_chain = d
+				worst_chain_t = _chain_t
+		_chain_phase = 0
 	t = keep_t
 	playing = was_playing
-	if worst < 0.02:
-		_flash("Clip OK: blade and arm stay outside the body")
-	else:
+	if worst < 0.02 and worst_chain < 0.02:
+		_flash("Clip OK: blade and arm stay outside the body" + (" (also chaining into %s)" % AnimLibrary.clip(_chain_clip()).label if chain_next != "" else ""))
+	elif worst >= worst_chain:
 		_flash("Blade/arm %d cm inside the body at t = %.2f" % [roundi(worst * 100.0), worst_t])
 		_set_t(worst_t)
+	else:
+		_flash("Chaining into %s: blade/arm %d cm inside the body at its t = %.2f. Move this clip's last key or the next clip's first key, or raise its chained start." % [
+			AnimLibrary.clip(_chain_clip()).label, roundi(worst_chain * 100.0), worst_chain_t])
 
 
 func _flash(msg: String) -> void:
@@ -2022,6 +2111,15 @@ class Timeline extends Control:
 		if c.hit >= 0.0:
 			draw_line(Vector2(_x(c.hit), 2), Vector2(_x(c.hit), h - 2), Color(1.0, 0.3, 0.25), 2.0)
 			draw_string(get_theme_default_font(), Vector2(_x(c.hit) + 4, 14), "hit", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(1.0, 0.45, 0.4))
+		if c.has("link") and ws.base_clip in AnimLibrary.CLIPS and not c.get("loop", false):
+			# Kombo: Anschluss (grün) und Einstieg als Folgeschlag (lila)
+			var lp: float = ws.link_point()
+			draw_line(Vector2(_x(lp), 2), Vector2(_x(lp), h - 2), Color(0.4, 1.0, 0.45), 2.0)
+			draw_string(get_theme_default_font(), Vector2(_x(lp) + 4, h - 12), "link", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.5, 1.0, 0.55))
+			var ci := ComboModule.chain_start(c, c.hit)
+			if ci > 0.0:
+				draw_line(Vector2(_x(ci), 2), Vector2(_x(ci), h - 2), Color(0.75, 0.5, 1.0), 2.0)
+				draw_string(get_theme_default_font(), Vector2(_x(ci) + 4, h - 12), "in", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.8, 0.6, 1.0))
 		for i in 11:
 			var x := _x(i / 10.0)
 			draw_line(Vector2(x, h - 10), Vector2(x, h - 2), Color(0.4, 0.5, 0.5), 1.0)

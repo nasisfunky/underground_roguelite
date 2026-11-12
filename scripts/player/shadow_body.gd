@@ -179,6 +179,15 @@ var _custom_weapon: Node3D
 var _two_w := 0.0  ## 0..1, Gewicht des beidhändigen Griffs
 ## Animationsclip für die Aktion "swing" (leer = AnimLibrary.CLIPS[swing_index]); z. B. "thrust@spear"
 var swing_clip := ""
+## Kombo-Übergang: wird bei jedem neuen Schlag hochgezählt. Folgt der Schlag direkt auf einen anderen, beginnt
+## er in der Haltung, in der der vorige gerade war (statt erst in die Grundhaltung zurückzuspringen).
+var swing_serial := 0
+var _serial_seen := 0
+var _swing_from: Array = []  ## Haltung beim Übergang (wie swing_sample), leer = Grundhaltung
+var _swing_from_t := 0.0  ## normierte Zeit, bei der der angeschlossene Schlag einsteigt
+var _last_action: StringName = &""
+var _swing_via: Array = []  ## Zwischen-Key des Übergangs (führt die Klinge um den Körper herum), leer = direkter Weg
+var _via_serial := -1
 var knockdown_getup := 0.55  ## Aktion "knockdown": ab hier (normiert) steht die Figur wieder auf
 ## Werkstatt: Haltung erzwingen (leer = normal). "idle", "walk", "guard" … siehe PoseLibrary
 var _body_ofs: Array = []  ## Körper-Zusätze des laufenden Clips (AnimLibrary.BODY_FIELDS)
@@ -881,6 +890,11 @@ func tick(delta: float) -> void:
 
 	match action:
 		&"swing":
+			if swing_serial != _serial_seen:
+				_serial_seen = swing_serial
+				var chained := _last_action == &"swing" and swing_sample.size() >= 10
+				_swing_from = swing_sample.duplicate(true) if chained else []
+				_swing_from_t = action_t if chained else 0.0
 			var k := _swing_pose(swing_index, action_t, [grip, sdir, sflat, sh_pos, sh_front])
 			_body_ofs = k[9]
 			swing_sample = k
@@ -1343,6 +1357,7 @@ func tick(delta: float) -> void:
 		_update_willfault(delta)
 	if head_light:
 		head_light.light_energy = 0.45 * (1.0 + 0.35 * sin(_time * 11.3) * sin(_time * 7.1 + 1.0))
+	_last_action = action
 
 
 func _process(_delta: float) -> void:
@@ -1548,18 +1563,31 @@ func _swing_pose(index: int, t: float, base: Array) -> Array:
 	var c: Dictionary = AnimLibrary.clip(swing_clip if swing_clip != "" else AnimLibrary.CLIPS[clampi(index, 0, AnimLibrary.CLIPS.size() - 1)])
 	var trail_window: Vector2 = c.trail
 	# Zeile: [t, Griff, Klingenrichtung, Flachseite, Drehung, Vorlage, Absenken, Schild, Schild-Front]
-	var keys: Array = [[0.0, base[0], base[1], base[2], 0.0, 0.0, 0.0, base[3], base[4]]]
+	# Angeschlossener Schlag: erster Key = Haltung am Ende des vorigen Schlags (dort, wo er eingestiegen ist)
+	var t0 := 0.0
+	var keys: Array
+	if _swing_from.size() >= 10:
+		var fr := _swing_from
+		t0 = clampf(_swing_from_t, 0.0, 0.9)
+		keys = [[t0, fr[0], fr[1], fr[2], fr[3], fr[4], fr[5], fr[7], fr[8], fr[9]]]
+	else:
+		keys = [[0.0, base[0], base[1], base[2], 0.0, 0.0, 0.0, base[3], base[4], AnimLibrary.zero_body()]]
 	for k in c.keys:
-		keys.append([k.t, _unscale(k.grip), k.dir, k.flat, k.twist, k.lean, k.drop, _unscale(k.shield), k.shield_front, k.get("body", AnimLibrary.zero_body())])
-	keys[0].append(AnimLibrary.zero_body())
-	if c.get("hold_end", false) and not c.keys.is_empty():
+		if k.t > t0 + 0.005:
+			keys.append([k.t, _unscale(k.grip), k.dir, k.flat, k.twist, k.lean, k.drop, _unscale(k.shield), k.shield_front, k.get("body", AnimLibrary.zero_body())])
+	if t0 > 0.0 or _swing_from.size() >= 10:
+		if _via_serial != _serial_seen:
+			_via_serial = _serial_seen
+			_swing_via = _transition_via(keys, base) if keys.size() >= 2 else []
+		if not _swing_via.is_empty():
+			keys.insert(1, _swing_via)
+	if c.get("hold_end", false) and keys.size() >= 2:
 		# Haltung bleibt am Ende stehen (z. B. Tod), statt zur Grundhaltung zurückzukehren
 		var end_key: Array = (keys[keys.size() - 1] as Array).duplicate()
 		end_key[0] = 1.0
 		keys.append(end_key)
 	else:
-		keys.append([1.0, base[0], base[1], base[2], 0.0, 0.0, 0.0, base[3], base[4]])
-		keys[keys.size() - 1].append(AnimLibrary.zero_body())
+		keys.append([1.0, base[0], base[1], base[2], 0.0, 0.0, 0.0, base[3], base[4], AnimLibrary.zero_body()])
 	# Catmull-Rom durch die Keyframes: durchgehende Geschwindigkeit, keine Stopps an den Keys
 	var i := 0
 	while i < keys.size() - 2 and t > keys[i + 1][0]:
@@ -1583,6 +1611,51 @@ func _swing_pose(index: int, t: float, base: Array) -> Array:
 	for j in b1.size():
 		bod.append(_crf(b0[j], b1[j], b2[j], b3[j], u))
 	return [g, d, f, sc.x, sc.y, sc.z, trail_window, shp, shf, bod]
+
+
+## Übergang zwischen zwei Schlägen: Ginge die Klinge auf direktem Weg durch den eigenen Körper, führt ein
+## Zwischen-Key sie nahe an der Grundhaltung vorbei (vor dem Körper, Spitze nach vorn oben).
+func _transition_via(keys: Array, base: Array) -> Array:
+	var a: Array = keys[0]
+	var b: Array = keys[1]
+	if _seg_depth(a, b) < 0.015:
+		return []
+	var tm: float = lerpf(a[0], b[0], 0.5)
+	var d_mid: Vector3 = (a[2] as Vector3).normalized().lerp((b[2] as Vector3).normalized(), 0.5)
+	var bod: Array = []
+	for j in (a[9] as Array).size():
+		bod.append(lerpf(a[9][j], b[9][j], 0.5))
+	var best: Array = []
+	var best_d := INF
+	for w in [0.6, 0.8, 1.0]:
+		var via: Array = [tm, (a[1] as Vector3).lerp(b[1], 0.5).lerp(base[0], w), d_mid.lerp(base[1], minf(w + 0.15, 1.0)).normalized(),
+			(base[2] as Vector3), lerpf(a[4], b[4], 0.5), lerpf(a[5], b[5], 0.5), lerpf(a[6], b[6], 0.5),
+			(a[7] as Vector3).lerp(b[7], 0.5).lerp(base[3], 0.5), base[4], bod]
+		var dd := maxf(_seg_depth(a, via), _seg_depth(via, b))
+		if dd < best_d:
+			best_d = dd
+			best = via
+		if dd < 0.015:
+			break
+	return best
+
+
+## Wie tief ginge die Klinge auf dem Weg von Key a nach Key b in den Körper (grobe Abschätzung, Meter)?
+func _seg_depth(a: Array, b: Array) -> float:
+	var worst := 0.0
+	for i in range(1, 8):
+		var u := i / 8.0
+		var g: Vector3 = (a[1] as Vector3).lerp(b[1], u)
+		var d: Vector3 = (a[2] as Vector3).normalized().lerp((b[2] as Vector3).normalized(), u)
+		d = d.normalized() if d.length() > 0.05 else Vector3(0, 0.5, -1).normalized()
+		var gs := _scale_pose(g)
+		for s in [0.0, 0.25, 0.5, 0.75, 1.0]:
+			worst = maxf(worst, clip_depth(gs + d * weapon_length * s))
+		# Hand dicht an der Schulter: der Arm faltet sich, der Ellbogen kippt in den Körper
+		var fold := (UPPER_ARM + LOWER_ARM) * 0.5 - gs.distance_to(SHOULDER_R)
+		if fold > 0.0:
+			worst = maxf(worst, 0.02 + fold)
+	return worst
 
 
 func _cr(p0: Vector3, p1: Vector3, p2: Vector3, p3: Vector3, u: float) -> Vector3:
