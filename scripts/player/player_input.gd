@@ -10,6 +10,7 @@ extends Node
 ##   Rechtsklick      -> blocken (halten; früh = Parade)
 ##   Mittlere Taste   -> Alternativangriff der Waffe (Schwert: Stich)
 ##   Shift halten     -> sprinten
+##   Strg halten      -> langsam gehen (Shift hat Vorrang)
 ##   Alt links        -> rollen
 ##   Y                -> Waffe ziehen/wegstecken
 ##   X                -> Licht vorhalten/wegstecken
@@ -34,6 +35,9 @@ var block_held: bool:
 var sprint_held: bool:
 	get:
 		return not Game.paused and Input.is_action_pressed("sprint")
+var walk_held: bool:
+	get:
+		return not Game.paused and Input.is_action_pressed("walk")
 var look_delta := Vector2.ZERO  # wird von der Kamera verbraucht
 var zoom_delta := 0.0
 

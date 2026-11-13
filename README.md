@@ -29,6 +29,7 @@ Alle Texte im Spiel sind Englisch, Code-Kommentare und Doku Deutsch.
 | Mausrad | Zoom |
 | Leertaste | springen (halten = höher, antippen = kleiner Hüpfer) |
 | Shift halten | sprinten (~7 m/s, kostet Ausdauer; leer = erst nach etwas Erholung wieder) |
+| Strg halten | langsam gehen (~2 m/s statt ~4,8 m/s Joggen). Shift hat Vorrang. Achtung Windows: Strg+Esc öffnet das Startmenü |
 | Alt links | rollen (kurz unverwundbar, kostet Ausdauer). Ohne Waffe immer vorwärts in Laufrichtung; mit gezogener Waffe relativ zur Kamera: zurück = Rückwärtsrolle, seitlich = Seitenrolle (Blick bleibt vorn) |
 | Y | Waffe ziehen oder wegstecken. Mit Y gezogen bleibt sie gezogen; durch Angriff/Block gezogen wird sie nach 6 s ohne Kampf wieder weggesteckt |
 | X | Licht vorhalten oder wegstecken. Mit Licht zieht Y nur die Waffe; X steckt das Licht weg und nimmt den Schild |
@@ -230,7 +231,7 @@ Fähigkeiten mit Abklingzeit, Gegnertreffer und Blocken.
 ```
 godot --headless --fixed-fps 60 --path . tools/movement_test.tscn
 ```
-Prüft Tastenbelegung (Alt links, Shift, Y auf QWERTZ), Ziehen/Wegstecken (Gürtel, Rücken, Hand am Griff,
+Prüft Tastenbelegung (Alt links, Shift, Strg, Y auf QWERTZ), Gehen mit Strg, Ziehen/Wegstecken (Gürtel, Rücken, Hand am Griff,
 automatisches Wegstecken), Licht vorhalten und Schild-Tausch, natürliche Armbewegung, Sprint und Erschöpfung,
 Rollen in alle Richtungen (Richtung, Blick, kein Eintauchen in den Boden), Abrollen nach Stürzen,
 Klettern (Tempo, Ausdauer, Rand, Absprung, Hochziehen, Absturz bei leerer Ausdauer), Schwimmen ohne Tauchen,
