@@ -11,6 +11,8 @@ signal health_changed(current: float, maximum: float)
 @export var target_height := 2.1  ## Höhe für Zielmarker
 @export var radius := 0.45
 @export var body_height := 1.8  ## Höhe der Kollisionskapsel
+@export var stagger_resist := 1.0  ## Faktor auf die Unterbrechungsdauer durch Treffer (leichte Gegner > 1)
+@export var can_knockdown := true
 
 var health := 60.0
 var poise := 20.0
@@ -80,6 +82,23 @@ func receive_hit(info: DamageInfo) -> int:
 		_on_death()
 		died.emit(self)
 	return DamageInfo.Result.HIT
+
+
+## Wie stark unterbricht dieser Treffer? 0 = gar nicht, > 0 = Dauer (s), -1 = umgeworfen.
+## Mitten im eigenen Angriff (busy) unterbricht nur ein Treffer, der die Haltung (Poise) bricht:
+## Dolchstiche halten einen ausholenden Gegner also kaum auf, die Zweihandaxt schon.
+func hit_reaction(info: DamageInfo, busy: bool) -> float:
+	var broke := poise <= 0.0
+	if broke:
+		poise = max_poise
+	if info.knockdown and can_knockdown:
+		return -1.0
+	if busy and not broke:
+		return 0.0
+	var d := info.stagger * stagger_resist
+	if broke:
+		d = maxf(d + 0.25, 0.55)
+	return d
 
 
 ## Wird aufgerufen, wenn ein Spieler unseren Angriff pariert.

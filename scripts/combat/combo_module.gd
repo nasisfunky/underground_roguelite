@@ -34,10 +34,35 @@ var hits: Array[float] = []  ## Trefferzeitpunkte (normiert); leer = aus dem Cli
 # Laufzeit
 var duration := 0.95
 var window := 0.68  ## ab hier (normiert) darf der nächste Baustein anschließen
+var chain_in := 0.0  ## hier (normiert) steigt der Clip ein, wenn er direkt an einen Schlag anschließt
 var _target: Enemy
 
 
 static var _gold := Color(1.0, 0.82, 0.42)
+const COMMIT_LEAD := 0.2  ## so viel (normiert) vor dem ersten Treffer ist ein wuchtiger Schlag festgelegt
+
+
+## Ab wann (normiert) der nächste Schlag an diesen Clip anschließen darf. Im Clip einstellbar ("link",
+## Werkstatt: Timing), sonst kurz nach dem letzten Treffer, wenn der Durchzug vorbei ist.
+static func link_point(c: Dictionary, last_hit: float) -> float:
+	var l := float(c.get("link", 0.0))
+	if l > 0.0:
+		return clampf(l, last_hit + 0.02, 0.98)
+	return clampf(last_hit + 0.24, 0.55, 0.8)
+
+
+## Wo (normiert) ein angeschlossener Schlag einsteigt ("chain_in", Werkstatt: Timing): ein Teil der Ausholbewegung
+## entfällt, weil der vorige Schlag schon Schwung mitbringt. Immer vor dem ersten Treffer.
+static func chain_start(c: Dictionary, first_hit: float) -> float:
+	return clampf(float(c.get("chain_in", 0.0)), 0.0, maxf(first_hit - 0.08, 0.0))
+
+
+## Ab der Ausholbewegung bis kurz nach dem letzten Treffer festgelegt? (Abbrechen per Rolle/Block nicht mehr möglich)
+## Gilt für wuchtige Schläge: Finisher und alles mit der Zweihandaxt.
+func committed(p: Player, t: float) -> bool:
+	if not (finisher or p.weapon.is_heavy()):
+		return false
+	return t >= hits[0] - COMMIT_LEAD and t <= hits[hits.size() - 1] + 0.08
 
 
 ## Vor dem Start: Dauer/Trefferzeit aus dem Clip, skaliert mit dem Tempo der Waffe.
@@ -46,7 +71,8 @@ func setup(p: Player) -> void:
 	duration = c.duration * p.weapon.eff_speed(p.body.off_item)
 	if hits.is_empty():
 		hits = [c.hit]
-	window = clampf(hits[hits.size() - 1] + 0.24, 0.55, 0.8)
+	window = link_point(c, hits[hits.size() - 1])
+	chain_in = chain_start(c, hits[0])
 
 
 ## Clip für die aktuelle Waffe (eigene Version "<clip>@<waffe>", falls in der Werkstatt angelegt).

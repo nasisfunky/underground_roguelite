@@ -38,6 +38,8 @@ func update(p: Player, t: float, delta: float) -> bool:
 		info.hitstop = 0.1
 		info.heavy = true
 		info.shake = 0.4
+		info.stagger = 1.0 * p.weapon.eff_stagger(p.body.off_item)
+		info.knockdown = info.stagger >= Player.KNOCKDOWN_AT
 		p.hit_cone(2.9, 70.0, info)
 		var impact := p.global_position + dir * 1.4
 		FX.ring(p, impact, Color(0.5, 0.95, 1.0, 0.9), 2.4, 0.3)

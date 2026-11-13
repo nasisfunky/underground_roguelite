@@ -28,6 +28,8 @@ func _ready() -> void:
 	await _test_finishers()
 	await _test_real_enemy()
 	await _test_weapons()
+	await _test_impact()
+	await _test_flow()
 	await _test_menu()
 
 	print("\n=== COMBAT TEST: %s (%d Fehler) ===" % ["OK" if fails == 0 else "FEHLER", fails])
@@ -314,6 +316,238 @@ func _test_menu() -> void:
 
 
 # ------------------------------------------------------------------
+
+## Abbrechen, Unterbrechen je Waffe, Umwerfen (Gegner und Spieler).
+## Eingabe und Übergänge der Kombo: früher Klick bleibt vorgemerkt, Folgeschlag beginnt in der aktuellen Haltung,
+## Anschluss/Einstieg aus dem Clip, Angriff aus gehaltener Deckung, Nachlauf per Laufen, Zielhilfe.
+func _test_flow() -> void:
+	_reset(Vector3(-6, 0.1, 10.5))
+	p.set_weapon(&"sword")
+	p.set_offhand(&"shield")
+	await _draw_on()
+	await _phys(40)
+	var aim := p.aim_assist_deg
+	p.aim_assist_deg = 0.0
+	# 1) sehr früher zweiter Klick geht nicht verloren, Folgeschlag startet am Anschlusspunkt
+	var c1: Dictionary = AnimLibrary.clip(AnimLibrary.resolve("swing_1", "sword"))
+	var old_in: float = c1.get("chain_in", 0.0)
+	c1.chain_in = 0.14
+	p.combo_chain.assign([&"cut", &"backcut", &"", &"", &""])
+	p._chain_idle = 99.0
+	p._chain_i = 0
+	p._set_stamina(p.max_stamina)
+	p.input._attack = 1
+	await _phys(6)
+	p.input._attack = 1  # ganz am Anfang des ersten Schlags nochmal geklickt
+	var first: ComboModule = p._module
+	var link := first.window if first else 0.0
+	var started_t := -1.0
+	var start_k := -1.0
+	var jump := 0.0
+	var prev: Array = []
+	for i in 150:
+		await get_tree().physics_frame
+		var smp: Array = p.body.swing_sample
+		if p._module and p._module != first and started_t < 0.0:
+			started_t = p._swing_t / p.swing_duration
+			if prev.size() >= 10 and smp.size() >= 10:
+				jump = (smp[0] as Vector3).distance_to(prev[0])
+			break
+		if first and p._module == first:
+			start_k = p._swing_t / p.swing_duration
+		prev = smp.duplicate()
+	_check("Früher Klick bleibt vorgemerkt: Backcut folgt", started_t >= 0.0, "%.2f" % started_t)
+	_check("Folgeschlag am Anschlusspunkt des ersten", start_k >= link - 0.04 and start_k <= link + 0.05, "Anschluss %.2f, gewechselt bei %.2f" % [link, start_k])
+	_check("Angeschlossener Schlag steigt beim eingestellten Punkt ein", absf(started_t - 0.14) < 0.04, "%.2f" % started_t)
+	_check("Übergang ohne Sprung in der Haltung", jump < 0.06, "Griff springt %.3f m" % jump)
+	c1.chain_in = old_in
+	await _phys(90)
+	# 2) Anschlusspunkt aus dem Clip
+	var c0: Dictionary = AnimLibrary.clip(AnimLibrary.resolve("swing_0", "sword"))
+	var old_link: float = c0.get("link", 0.0)
+	c0.link = 0.9
+	var m := ComboModules.make(&"cut")
+	m.setup(p)
+	_check("Anschlusspunkt im Clip einstellbar", absf(m.window - 0.9) < 0.001, "%.2f" % m.window)
+	c0.link = old_link
+	# 3) Angriff aus gehaltener Deckung: Schlag läuft durch, danach Deckung wieder oben (ohne Parade)
+	p.combo_chain.assign([&"cut", &"", &"", &"", &""])
+	Input.action_press("block")
+	await _phys(30)
+	var blocked_before := p.is_blocking()
+	p._chain_idle = 99.0
+	p._chain_i = 0
+	p._set_stamina(p.max_stamina)
+	p.input._attack = 1
+	var max_k := 0.0
+	for i in 120:
+		await get_tree().physics_frame
+		if p._swing_t >= 0.0:
+			max_k = maxf(max_k, p._swing_t / p.swing_duration)
+		elif max_k > 0.0:
+			break
+	await _phys(20)
+	_check("Angriff aus der Deckung läuft durch", blocked_before and max_k > 0.6, "bis %.2f" % max_k)
+	_check("Danach Deckung wieder oben, ohne Parade-Fenster", p.is_blocking() and p._block_t > p.parry_window, "Block %s" % p.is_blocking())
+	Input.action_release("block")
+	await _phys(20)
+	# 4) Nachlauf durch Laufen abkürzen
+	p._chain_idle = 99.0
+	p._chain_i = 0
+	p._set_stamina(p.max_stamina)
+	p.input._attack = 1
+	var ended_at := -1.0
+	var pressed := false
+	var last_k := 0.0
+	for i in 120:
+		await get_tree().physics_frame
+		if p._swing_t >= 0.0:
+			last_k = p._swing_t / p.swing_duration
+			if not pressed and last_k > p.combo_window + p.move_cancel_after + 0.02:
+				Input.action_press("move_forward")
+				pressed = true
+		elif pressed:
+			ended_at = last_k
+			break
+	Input.action_release("move_forward")
+	_check("Laufen beendet den Nachlauf", ended_at > 0.0 and ended_at < 0.97, "endete bei %.2f" % ended_at)
+	await _phys(40)
+	# 5) Zielhilfe: Gegner 22° neben der Kamerarichtung -> Schlag zielt auf ihn, 60° daneben -> nicht
+	p.aim_assist_deg = aim
+	_reset(Vector3(-6, 0.1, 10.5))
+	await _phys(5)
+	var d := _dummy(Vector3(-6 - 2.2 * sin(deg_to_rad(22.0)), 0.05, 10.5 - 2.2 * cos(deg_to_rad(22.0))))
+	await _phys(3)
+	var y1 := p._aim_yaw(0.0, p.melee_range + 0.3)
+	_check("Zielhilfe dreht zum Gegner knapp daneben", absf(rad_to_deg(y1) - 22.0) < 2.0, "%.1f°" % rad_to_deg(y1))
+	d.global_position = C + Vector3(-6 - 2.2 * sin(deg_to_rad(60.0)), 0.05, 10.5 - 2.2 * cos(deg_to_rad(60.0)))
+	await _phys(2)
+	var y2 := p._aim_yaw(0.0, p.melee_range + 0.3)
+	_check("Keine Zielhilfe bei 60°", absf(y2) < 0.001, "%.1f°" % rad_to_deg(y2))
+	_clear()
+	await _phys(5)
+
+
+func _test_impact() -> void:
+	_reset(Vector3(-6, 0.1, 10.5))
+	p.set_weapon(&"sword")
+	p.set_offhand(&"shield")
+	await _draw_on()
+	await _phys(40)
+	# 1) normaler Hieb lässt sich per Rolle abbrechen
+	p.combo_chain.assign([&"cut", &"", &"", &"", &""])
+	p._chain_idle = 99.0
+	p._chain_i = 0
+	p._set_stamina(p.max_stamina)
+	p.input._attack = 1
+	for i in 60:
+		await get_tree().physics_frame
+		if p._swing_t >= 0.0 and p._swing_t / p.swing_duration > 0.3:
+			break
+	p.input._roll_pressed = true
+	await _phys(4)
+	_check("Hieb per Rolle abbrechen", p.state == Player.State.ROLL and p._swing_t < 0.0, str(p.state))
+	await _phys(70)
+	# 2) Zweihandaxt: ab dem Ausholen festgelegt
+	_reset(Vector3(-6, 0.1, 10.5))
+	p.set_weapon(&"greataxe")
+	p.set_offhand(&"")
+	await _phys(60)
+	p.combo_chain.assign([&"cleave", &"", &"", &"", &""])
+	p._chain_idle = 99.0
+	p._chain_i = 0
+	p._set_stamina(p.max_stamina)
+	p.input._attack = 1
+	var m: ComboModule = null
+	for i in 90:
+		await get_tree().physics_frame
+		m = p._module
+		if m and p._swing_t / p.swing_duration > m.hits[0] - 0.1:
+			break
+	p.input._roll_pressed = true
+	await _phys(4)
+	_check("Axt-Finisher festgelegt: Rolle wartet", p.state == Player.State.MOVE and p._swing_t >= 0.0 and p.swing_committed(), str(p.state))
+	var rolled := false
+	for i in 90:
+		await get_tree().physics_frame
+		if p.state == Player.State.ROLL:
+			rolled = true
+			break
+	_check("Rolle kommt nach dem Schlag", rolled, "")
+	await _phys(70)
+	# 3) Unterbrechung je Waffe am Hollowed
+	var h := Hollowed.new()
+	h.position = C + Vector3(-6, 0.05, 6.0)
+	level.add_child(h)
+	_spawned.append(h)
+	await _phys(5)
+	p.set_weapon(&"dagger")
+	p.set_offhand(&"shield")
+	await _phys(2)
+	h.poise = h.max_poise
+	h._set_state(Hollowed.S.CHASE)
+	h.receive_hit(p.module_info(ComboModules.make(&"cut")))
+	var dagger_len := h._stagger_len
+	await _phys(60)
+	p.set_weapon(&"greataxe")
+	p.set_offhand(&"")
+	await _phys(2)
+	h.poise = h.max_poise
+	h._set_state(Hollowed.S.CHASE)  # nicht gerade am Ausholen (sonst unterbricht nur ein Haltungsbruch)
+	h.receive_hit(p.module_info(ComboModules.make(&"cut")))
+	var axe_len := h._stagger_len
+	_check("Dolch unterbricht kurz, Axt lange", dagger_len < 0.3 and axe_len > 0.6, "Dolch %.2f s, Axt %.2f s" % [dagger_len, axe_len])
+	await _phys(80)
+	# ausholender Gegner: Dolchstich hält ihn nicht auf
+	p.set_weapon(&"dagger")
+	p.set_offhand(&"shield")
+	h.poise = h.max_poise
+	h._set_state(Hollowed.S.WINDUP)
+	h.receive_hit(p.module_info(ComboModules.make(&"cut")))
+	_check("Ausholender Hollowed: Dolch unterbricht nicht", h.state == Hollowed.S.WINDUP, str(h.state))
+	await _phys(2)
+	# Axt-Finisher wirft um
+	p.set_weapon(&"greataxe")
+	p.set_offhand(&"")
+	await _phys(2)
+	var heavy := p.module_info(ComboModules.make(&"cleave"))
+	h.receive_hit(heavy)
+	_check("Axt-Finisher wirft den Hollowed um", heavy.knockdown and h.state == Hollowed.S.KNOCKDOWN, "%s %s" % [heavy.knockdown, h.state])
+	await _phys(int(Hollowed.KNOCKDOWN_TIME * 60) + 20)
+	_check("Hollowed steht wieder auf", h.state != Hollowed.S.KNOCKDOWN, str(h.state))
+	await _clear()
+	# 4) Spieler: Unterbrechung je nach Angriff, schwerer Treffer wirft um
+	_reset(Vector3(-6, 0.1, 10.5))
+	p.set_weapon(&"sword")
+	p.set_offhand(&"shield")
+	await _phys(30)
+	var src := Node3D.new()
+	level.add_child(src)
+	src.global_position = p.global_position + Vector3(0, 0, -1.5)
+	var lens: Array[float] = []
+	for st in [0.3, 0.8]:
+		var info := DamageInfo.new()
+		info.amount = 1.0
+		info.source = src
+		info.stagger = st
+		p.receive_hit(info)
+		lens.append(p._stagger_len)
+		await _phys(70)
+	_check("Spieler: Unterbrechung je nach Angriff", is_equal_approx(lens[0], 0.3) and is_equal_approx(lens[1], 0.8), str(lens))
+	var kd := DamageInfo.new()
+	kd.amount = 1.0
+	kd.source = src
+	kd.knockback = 7.0
+	kd.knockdown = true
+	var z0 := p.global_position.z
+	p.receive_hit(kd)
+	await _phys(30)
+	_check("Spieler umgeworfen und nach hinten geschleudert", p.state == Player.State.KNOCKDOWN and p.global_position.z - z0 > 0.8, "%s, %.1f m" % [p.state, p.global_position.z - z0])
+	_check("Am Boden unverwundbar", p.is_invulnerable(), "")
+	await _phys(int(Player.KNOCKDOWN_TIME * 60) + 10)
+	_check("Spieler steht wieder auf", p.state == Player.State.MOVE, str(p.state))
+	src.queue_free()
+
 
 func _dummy(local: Vector3) -> TrainingDummy:
 	var d := TrainingDummy.new()

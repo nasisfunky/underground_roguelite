@@ -4,6 +4,8 @@ extends RefCounted
 ## und wird in der Animationswerkstatt (tools/anim_workshop.tscn) bearbeitet.
 ##
 ## Format: {"name", "label", "duration" (s), "hit" (0..1, Trefferzeitpunkt), "trail" [von, bis],
+##          "link" (optional: ab hier darf der nächste Kombo-Schlag anschließen, 0 = automatisch),
+##          "chain_in" (optional: hier steigt der Clip ein, wenn er an einen Schlag anschließt, 0 = am Anfang),
 ##          "keys": [{"t", "grip" [x,y,z], "dir", "flat", "twist", "lean", "drop", "shield", "shield_front"}]}
 ## Alle Positionen/Richtungen in Brust-Koordinaten der Figur (x rechts, y hoch, -z vorn).
 ## Erster und letzter Key (t=0 und t=1) sind immer die aktuelle Grundhaltung und stehen nicht in der Datei.
@@ -141,6 +143,8 @@ static func _from_json(d: Dictionary) -> Dictionary:
 		"duration": float(d.get("duration", 0.95)),
 		"hit": float(d.get("hit", 0.44)),
 		"trail": Vector2(float(tr[0]), float(tr[1])),
+		"link": float(d.get("link", 0.0)),
+		"chain_in": float(d.get("chain_in", 0.0)),
 		"keys": keys,
 	}
 
@@ -171,8 +175,14 @@ static func _to_json(c: Dictionary) -> Dictionary:
 			if absf(b[i]) > 0.0005:
 				kd[BODY_FIELDS[i]] = _r(b[i])
 		keys.append(kd)
-	return {"name": c.name, "label": c.label, "duration": _r(c.duration), "hit": _r(c.hit),
+	var out := {"name": c.name, "label": c.label, "duration": _r(c.duration), "hit": _r(c.hit),
 		"trail": [_r(c.trail.x), _r(c.trail.y)], "keys": keys}
+	# Kombo-Übergang (0 = automatisch), nur wenn gesetzt
+	if float(c.get("link", 0.0)) > 0.0:
+		out.link = _r(c.link)
+	if float(c.get("chain_in", 0.0)) > 0.0:
+		out.chain_in = _r(c.chain_in)
+	return out
 
 
 ## Lesbares JSON: Kopfdaten oben, ein Keyframe pro Zeile.
@@ -181,9 +191,13 @@ static func _to_text(c: Dictionary) -> String:
 	var lines: Array[String] = []
 	for k in j.keys:
 		lines.append("\t\t" + JSON.stringify(k, "", false))
-	return "{\n\t\"name\": %s,\n\t\"label\": %s,\n\t\"duration\": %s,\n\t\"hit\": %s,\n\t\"trail\": %s,\n\t\"keys\": [\n%s\n\t]\n}\n" % [
+	var extra := ""
+	for f in ["link", "chain_in"]:
+		if j.has(f):
+			extra += "\n\t\"%s\": %s," % [f, JSON.stringify(j[f])]
+	return "{\n\t\"name\": %s,\n\t\"label\": %s,\n\t\"duration\": %s,\n\t\"hit\": %s,\n\t\"trail\": %s,%s\n\t\"keys\": [\n%s\n\t]\n}\n" % [
 		JSON.stringify(j.name), JSON.stringify(j.label), JSON.stringify(j.duration), JSON.stringify(j.hit),
-		JSON.stringify(j.trail), ",\n".join(lines)]
+		JSON.stringify(j.trail), extra, ",\n".join(lines)]
 
 
 static func duplicate_clip(c: Dictionary) -> Dictionary:
