@@ -72,6 +72,7 @@ func _setup_input() -> void:
 	_key("move_right", [KEY_D, KEY_RIGHT])
 	_key("jump", [KEY_SPACE])
 	_key("sprint", [KEY_SHIFT])
+	_key("walk", [KEY_CTRL])  # beide Strg-Tasten
 	_key_loc("roll", KEY_ALT, KEY_LOCATION_LEFT)
 	_key("block", [KEY_Q])
 	# Y/X nach Beschriftung (QWERTZ: Y liegt dort, wo auf US-Tastaturen Z ist)

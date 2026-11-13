@@ -25,6 +25,7 @@ enum State { MOVE, ROLL, ABILITY, STAGGER, DEAD, CLIMB, LEDGE_UP, SWIM, KNOCKDOW
 
 @export_group("Laufen")
 @export var run_speed := 4.8
+@export var walk_speed := 2.0  ## Strg halten: langsam gehen
 @export var backpedal_mult := 0.6
 @export var block_speed_mult := 0.5
 @export var ground_accel := 20.0
@@ -176,6 +177,7 @@ var _since_combat := 99.0
 var _light_before := false
 # Sprint
 var sprinting := false
+var walking := false  ## Strg gehalten: langsam gehen
 var _exhausted := false
 # Klettern, Hochziehen, Schwimmen, Sturz
 var _climb_n := Vector3.BACK
@@ -614,7 +616,9 @@ func _state_move(delta: float) -> void:
 			_exhausted = true
 			sprinting = false
 
-	var spd := sprint_speed if sprinting else run_speed
+	# Gehen (Strg halten): langsam, Sprint hat Vorrang
+	walking = input != null and input.walk_held and not sprinting
+	var spd := sprint_speed if sprinting else (walk_speed if walking else run_speed)
 	if _blocking:
 		spd *= block_speed_mult
 	# im flachen Wasser waten

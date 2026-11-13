@@ -86,7 +86,7 @@ func setup(p: Player) -> void:
 	# --- Hilfe oben links ---
 	_help = _label(13, Color(0.8, 0.92, 0.92, 0.9))
 	_help.position = Vector2(18, 16)
-	_help.text = """WASD  move        Space  jump (hold = higher)        Shift  sprint
+	_help.text = """WASD  move        Space  jump (hold = higher)        Shift  sprint        Ctrl  walk
 Left Alt  roll (weapon drawn: back/side rolls relative to camera)
 Hold right mouse / Q  block (early = parry)
 Y  draw / sheathe weapon        X  raise / stow light

@@ -20,6 +20,7 @@ func _ready() -> void:
 
 	await _test_controls()
 	await _test_equipment()
+	await _test_walk()
 	await _test_sprint()
 	await _test_rolls()
 	await _test_fall_rolls()
@@ -47,6 +48,11 @@ func _test_controls() -> void:
 		if ev is InputEventKey and (ev as InputEventKey).physical_keycode == KEY_SHIFT:
 			shift_rolls = true
 	_check("Shift = Sprint (nicht mehr Rolle)", sprint_ok and not shift_rolls, "")
+	var walk_ok := false
+	for ev in InputMap.action_get_events("walk"):
+		if ev is InputEventKey and (ev as InputEventKey).physical_keycode == KEY_CTRL:
+			walk_ok = true
+	_check("Strg = Gehen", walk_ok, "")
 	# echter Tastendruck: Alt links -> Rolle, Y -> ziehen, X -> Licht
 	var e := InputEventKey.new()
 	e.physical_keycode = KEY_ALT
@@ -164,6 +170,47 @@ func _test_equipment() -> void:
 	_check("Glowmire: Laternenstab auf dem Rücken", pole_back < -0.1, "%.2f m" % pole_back)
 	p.set_culture("kiln")
 	await _phys(10)
+
+
+func _test_walk() -> void:
+	_teleport(Vector3(35, 0.1, -21), PI * 0.5)
+	await _phys(5)
+	Input.action_press("move_forward")
+	await _phys(60)
+	var jog := p.get_horizontal_speed()
+	# echter Tastendruck: Strg (links) halten, dabei W -> weiter gehen (Strg+W darf die Bewegung nicht schlucken)
+	var e := InputEventKey.new()
+	e.physical_keycode = KEY_CTRL
+	e.keycode = KEY_CTRL
+	e.location = KEY_LOCATION_LEFT
+	e.ctrl_pressed = true
+	e.pressed = true
+	Input.parse_input_event(e)
+	Input.action_release("move_forward")
+	var ew := InputEventKey.new()
+	ew.physical_keycode = KEY_W
+	ew.keycode = KEY_W
+	ew.ctrl_pressed = true
+	ew.pressed = true
+	Input.parse_input_event(ew)
+	await _phys(60)
+	var v := p.get_horizontal_speed()
+	_check("Strg halten = langsam gehen (~2 m/s)", absf(v - p.walk_speed) < 0.2 and p.walking and jog > p.run_speed - 0.2, "%.2f m/s (vorher %.2f)" % [v, jog])
+	Input.action_press("sprint")
+	await _phys(40)
+	v = p.get_horizontal_speed()
+	_check("Shift hat Vorrang vor Strg", p.sprinting and v > 6.6, "%.2f m/s" % v)
+	Input.action_release("sprint")
+	e.pressed = false
+	e.ctrl_pressed = false
+	Input.parse_input_event(e)
+	await _phys(50)
+	v = p.get_horizontal_speed()
+	_check("Strg loslassen = wieder joggen", not p.walking and absf(v - p.run_speed) < 0.3, "%.2f m/s" % v)
+	ew.pressed = false
+	ew.ctrl_pressed = false
+	Input.parse_input_event(ew)
+	await _phys(30)
 
 
 func _test_sprint() -> void:
