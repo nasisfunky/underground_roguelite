@@ -1,6 +1,6 @@
 extends Node
 ## Entwickler-Werkzeug: rendert die Frayed-Shades aller Kulturen in einigen Posen als PNG.
-## Aufruf: godot --path . tools/preview_frayed.tscn -- <out_dir> [hell|dunkel] [nohem] [flash] [motion]
+## Aufruf: godot --path . tools/preview_frayed.tscn -- <out_dir> [hell|dunkel] [nohem] [flash] [motion] [lampe]
 
 const POSES := [["idle", &"", 0.0, 0.0, 0.0, 0.0], ["run", &"", 0.0, 4.8, 0.0, 0.0], ["guard", &"", 0.0, 0.0, 0.0, 1.0],
 	["swing", &"swing", 0.45, 0.0, 0.0, 1.0], ["block", &"", 0.0, 0.0, 1.0, 1.0], ["roll", &"roll", 0.3, 0.0, 0.0, 0.0]]
@@ -28,6 +28,14 @@ func _ready() -> void:
 		sun.rotation = Vector3(-0.8, 2.6, 0)
 		sun.light_energy = 0.9
 		root3d.add_child(sun)
+	# "lampe": warmes Punktlicht nah an der Figur, wie die Laterne im Spiel (prüft Körper gegen Flammensaum)
+	var lamp: OmniLight3D = null
+	if "lampe" in args:
+		lamp = OmniLight3D.new()
+		lamp.light_color = Color(1.0, 0.8, 0.52)
+		lamp.light_energy = 2.5
+		lamp.omni_range = 6.0
+		root3d.add_child(lamp)
 	var ground := MeshInstance3D.new()
 	var pm := PlaneMesh.new()
 	pm.size = Vector2(30, 30)
@@ -83,6 +91,8 @@ func _ready() -> void:
 			for o in bodies:
 				o.visible = o == b
 			cam.position = b.position + v[1]
+			if lamp:
+				lamp.position = b.position + Vector3(0.9, 1.6, -1.2)
 			cam.look_at(b.position + Vector3(0, 1.48 if v[0] == "face" else 0.95, 0))
 			for k in 3:
 				b.tick(1.0 / 60.0)

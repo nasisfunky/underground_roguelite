@@ -2,6 +2,8 @@
 // Jede Hülle (layer_k 0..1) wird weiter nach außen geschoben und per Rauschen ausgedünnt,
 // so entsteht ein flackernder schwarzer Flammensaum mit glimmenden Rändern.
 // Vertex-Farbe: a = Maske (0 dort, wo Ausrüstung sitzt), rgb = Haarrichtung (nur Kopf), UV.x = Haarstärke.
+// Körper und Saum sind beide unbeleuchtet tiefschwarz (wie shade_skin.gdshader), damit sie eine Masse
+// bleiben; nur die Spitzen glimmen selbst.
 shader_type spatial;
 render_mode unshaded, cull_front, world_vertex_coords, shadows_disabled;
 
