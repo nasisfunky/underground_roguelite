@@ -44,7 +44,7 @@ func _ready() -> void:
 	cam.fov = 40.0
 	level.add_child(cam)
 	cam.make_current()
-	var all := ["roll_fwd", "roll_dirs", "draw_light", "walk_sprint", "climb", "swim", "jump_in", "fall_rolls", "weapons", "modules", "hook"]
+	var all := ["locomotion", "roll_fwd", "roll_dirs", "draw_light", "walk_sprint", "climb", "swim", "jump_in", "fall_rolls", "weapons", "modules", "hook"]
 	for n in all:
 		if only.is_empty() or n in only:
 			await call("_s_" + n)
@@ -190,6 +190,44 @@ func _s_walk_sprint() -> void:
 	Input.action_release("move_forward")
 	_save("walk_sprint", imgs, 10)
 	await _frames(40)
+
+
+## Laufzyklen von der Seite: Gehen (2 m/s), Laufen, Sprint; je mit Mocap und zum Vergleich mit dem alten Zyklus.
+## Meldet außerdem, wie weit die Beinspitzen über/unter dem Boden stehen (Standbein sollte ~0 sein).
+func _s_locomotion() -> void:
+	var run0 := p.run_speed
+	for mode in [true, false]:
+		p.body.use_mocap = mode
+		var imgs: Array[Image] = []
+		for spd in [[2.0, false, 4], [run0, false, 4], [run0, true, 3]]:
+			_tp(C + Vector3(-12, 0.1, 6), -PI * 0.5)
+			p.run_speed = spd[0]
+			cam_off = Vector3(0, 0.1, 2.6)
+			await _frames(10)
+			Input.action_press("move_forward")
+			if spd[1]:
+				Input.action_press("sprint")
+			await _frames(45)
+			var lows: Array[float] = []
+			for i in 14:
+				for k in spd[2]:
+					await get_tree().physics_frame
+					var b := p.body
+					var tl := (b.knee_l.global_transform * Vector3(0, -ShadowBody.SHIN, 0)).y
+					var tr := (b.knee_r.global_transform * Vector3(0, -ShadowBody.SHIN, 0)).y
+					lows.append(minf(tl, tr) - p.global_position.y)
+				cam_off = Basis(Vector3.UP, p.body.global_rotation.y) * Vector3(2.6, 0.1, 0.0)  # immer genau von der Seite
+				_place_cam()
+				await RenderingServer.frame_post_draw
+				imgs.append(get_viewport().get_texture().get_image())
+			print("%s %.1f m/s: tiefste Beinspitze %.3f .. %.3f m" % ["mocap" if mode else "alt", p.get_horizontal_speed(), lows.min(), lows.max()])
+			Input.action_release("sprint")
+			Input.action_release("move_forward")
+			await _frames(30)
+		for si in 3:
+			_save("locomotion_%s_%s" % [["walk", "run", "sprint"][si], "mocap" if mode else "old"], imgs.slice(si * 14, si * 14 + 14), 7)
+	p.run_speed = run0
+	p.body.use_mocap = true
 
 
 func _s_climb() -> void:

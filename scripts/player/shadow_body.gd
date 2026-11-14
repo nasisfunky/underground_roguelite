@@ -4,7 +4,8 @@ extends Node3D
 ## Kapuze/Helm, Schal und Stoffbahnen. Komplett aus Low-Poly-Grundformen gebaut.
 ##
 ## Animation ist prozedural:
-##  - Beine: Vorwärtskinematik mit Schrittzyklus
+##  - Laufen: Motion-Capture-Zyklen (LocomotionLibrary) für Hüfte, Rumpf, Kopf, Fußziele (Bein-IK) und freie Hände,
+##    nach Tempo gemischt; ohne data/locomotion.json der alte Schrittzyklus (Vorwärtskinematik)
 ##  - Arme: 2-Knochen-IK auf Schwertgriff und Schild
 ##  - Angriffe: Keyframes für Schwertposition/-richtung im Brustraum
 ## Dadurch kann der Oberkörper zuschlagen, während die Beine weiterlaufen (Auto-Angriff wie in WoW).
@@ -56,6 +57,10 @@ var weapon_p := 2.0
 var off_item: StringName = &""  ## Teil, das die linke Hand gerade hält, greift oder wegsteckt
 var off_p := 0.0
 var sprint := 0.0  ## 0..1, Sprinthaltung
+## Laufzyklus aus Motion Capture (data/locomotion.json); false = alter prozeduraler Schrittzyklus
+var use_mocap := true
+var mocap_twist := 0.5  ## Anteil der Schulterdrehung aus dem Mocap (der Rumpf der Shade ist ein starres Teil)
+var mocap_lean := 0.5  ## Anteil der Rumpf-Vorlage aus dem Mocap
 ## Waffe beidhändig führen (Zweihandaxt, Speer ohne Zweithand-Teil): linke Hand greift den Schaft
 var two_hand := false
 ## Zweithand-Dolch sticht nach (1 -> 0, setzt der Controller)
@@ -150,6 +155,9 @@ var _prev_vy := 0.0
 var _was_floor := true
 var _hips_drop := 0.0
 var _lower_yaw := 0.0
+var _loco: Array[Vector3] = []  ## aktuelle Mocap-Pose (Felder wie LocomotionLibrary.FIELDS)
+var _loco_w := 0.0  ## 0..1, wie stark die Mocap-Pose Rumpf, Kopf und Arme bestimmt
+const NO_LOCO_ACTIONS := [&"roll", &"climb", &"ledge_up", &"swim", &"water_enter", &"knockdown", &"dead"]
 var _trail: SwordTrail
 var _overrides: Dictionary = {}
 # Frayed-Stil
@@ -802,7 +810,10 @@ func tick(delta: float) -> void:
 	# --- Schrittzyklus: Schrittlänge wächst mit Tempo, Beinausschlag passt zur Schrittlänge (kein Gleiten) ---
 	var backwards := local_move.y < -0.1
 	var dir_sign := -1.0 if backwards else 1.0
+	var mocap := use_mocap and LocomotionLibrary.available()
 	var stride := lerpf(1.25, 2.5, clampf(s, 0.0, 1.0)) + 1.0 * sprint  # Meter pro Doppelschritt: wenige, lange Schritte
+	if mocap:
+		stride = LocomotionLibrary.stride(speed)
 	_phase += delta * speed / stride * TAU * dir_sign
 	var leg_len := THIGH + SHIN
 	var amp := asin(clampf(stride * 0.25 / leg_len, 0.0, 0.9)) * 1.05 * w_move
@@ -819,6 +830,22 @@ func tick(delta: float) -> void:
 	var run_kl := -(0.1 + 1.3 * maxf(0.0, cos(_phase)) * lift)
 	var run_kr := -(0.1 + 1.3 * maxf(0.0, cos(_phase + PI)) * lift)
 	var bob := (-0.05 * s + 0.06 * s * absf(cos(_phase))) * w_move  # deutliches Absenken pro Schritt = Gewicht
+	var run_l := Vector3(run_hl, 0.0, 0.0)
+	var run_r := Vector3(run_hr, 0.0, 0.0)
+	# Mocap-Zyklus: Fußziele per Bein-IK, Hüfte federt wie im Original
+	var loco_t := 0.0
+	if mocap:
+		_loco = LocomotionLibrary.sample(speed, fposmod(_phase / TAU, 1.0))
+		var ik_l := _leg_ik(_loco[4], _loco[6])
+		var ik_r := _leg_ik(_loco[5], _loco[7])
+		run_l = ik_l[0]
+		run_kl = ik_l[1]
+		run_r = ik_r[0]
+		run_kr = ik_r[1]
+		bob = _loco[0].y
+		if not (action in NO_LOCO_ACTIONS):
+			loco_t = 1.0
+	_loco_w = move_toward(_loco_w, loco_t, delta * 6.0)
 	# Stand-Pose (Kampfhaltung, leichtes Atmen)
 	var breathe := sin(_time * 2.0)
 	# Kampfhaltung nur mit gezogener Waffe (sonst hängen die Arme natürlich)
@@ -829,8 +856,8 @@ func tick(delta: float) -> void:
 	var idle_kl := lerpf(-0.28, -0.55, cw)
 	var idle_kr := lerpf(-0.16, -0.42, cw)
 	var wm := clampf(w_move, 0.0, 1.0)
-	var hl := Vector3(lerpf(idle_hl, run_hl, wm), 0.0, lerpf(-0.05, 0.0, wm))
-	var hr := Vector3(lerpf(idle_hr, run_hr, wm), 0.0, lerpf(0.05, 0.0, wm))
+	var hl := Vector3(idle_hl, 0.0, -0.05).lerp(run_l, wm)
+	var hr := Vector3(idle_hr, 0.0, 0.05).lerp(run_r, wm)
 	var kl := lerpf(idle_kl, run_kl, wm)
 	var kr := lerpf(idle_kr, run_kr, wm)
 	var hips_y := lerpf(-0.03 - 0.035 * cw + breathe * (0.006 + 0.006 * cw), bob, wm)
@@ -840,9 +867,12 @@ func tick(delta: float) -> void:
 	hr.x = lerpf(hr.x, -0.25 + 0.15 * rising, w_air)
 	kl = lerpf(kl, -1.15 - 0.3 * rising, w_air)
 	kr = lerpf(kr, -0.5, w_air)
+	hl.y *= 1.0 - w_air
+	hr.y *= 1.0 - w_air
 
-	# Rumpf: vorlehnen mit Tempo und beim Beschleunigen, in Kurven neigen
-	var lean := -0.06 - 0.1 * cw - 0.16 * minf(s, 1.0) * wm - 0.14 * sprint * wm - clampf(accel * 0.012, -0.25, 0.25) - 0.08 * w_air
+	# Rumpf: vorlehnen mit Tempo und beim Beschleunigen, in Kurven neigen (mit Mocap kommt die Tempo-Vorlage aus dem Clip)
+	var speed_lean := (0.16 * minf(s, 1.0) + 0.14 * sprint) * wm * (0.0 if mocap else 1.0)
+	var lean := -0.06 - 0.1 * cw - speed_lean - clampf(accel * 0.012, -0.25, 0.25) - 0.08 * w_air
 	var bank := clampf(-yaw_rate * speed * 0.012, -0.3, 0.3)
 	var twist := 0.0
 	var hips_drop := 0.0
@@ -1189,8 +1219,21 @@ func tick(delta: float) -> void:
 	hips.position.z = _u(_sp_hz, delta, hips_z)
 	if bo.size() == AnimLibrary.BODY_FIELDS.size():
 		lower_yaw += bo[1]
-	hips.rotation.y = lower_yaw
-	chest.rotation = Vector3(ln, tw - lower_yaw, -bk * 0.5)
+	var lw := _loco_w * wm * (1.0 - w_air)  # Gewicht der Mocap-Pose für Hüfte, Rumpf, Kopf und Arme
+	if lw > 0.001 and _loco.size() == LocomotionLibrary.FIELDS.size():
+		# Hüfte kippt/dreht wie im Clip; der Rumpf trägt Vorlage und (gedämpfte) Schulterdrehung,
+		# darüber die Spiel-Werte (Beschleunigen, Kurven, Schlag)
+		var hb := Basis.from_euler(_loco[1] * lw)
+		var cr: Vector3 = _loco[2]
+		cr = Vector3(cr.x * mocap_lean, cr.y * mocap_twist, cr.z) * lw
+		hips.basis = Basis(Vector3.UP, lower_yaw) * hb
+		chest.basis = hips.basis.inverse() * Basis.from_euler(Vector3(ln, tw, -bk * 0.5)) * hb * Basis.from_euler(cr)
+		hips.position.x = _loco[0].x * lw
+		hips.position.z += _loco[0].z * lw
+	else:
+		hips.rotation = Vector3(0.0, lower_yaw, 0.0)
+		hips.position.x = 0.0
+		chest.rotation = Vector3(ln, tw - lower_yaw, -bk * 0.5)
 	hip_l.rotation = hl
 	hip_r.rotation = hr
 	knee_l.rotation.x = kl
@@ -1206,6 +1249,10 @@ func tick(delta: float) -> void:
 	head.rotation = Vector3(hlook.y - ln * 0.5 - head_tuck, hlook.x, 0.0)
 	if bo.size() == AnimLibrary.BODY_FIELDS.size():
 		head.rotation += Vector3(bo[3], bo[2], 0.0)
+	if lw > 0.001 and _loco.size() == LocomotionLibrary.FIELDS.size():
+		# Kopf hält den Blick ruhig gegen die Schulterdrehung (wie im Clip)
+		var hr3: Vector3 = _loco[3]
+		head.rotation += Vector3(hr3.x * mocap_lean, hr3.y * mocap_twist, hr3.z) * lw
 
 	# Bodenkontakt: während der Rolle liegt der tiefste Körperpunkt genau auf dem Boden
 	# (kein Eintauchen, kein Schweben). Danach klingt der Versatz weich aus.
@@ -1232,8 +1279,14 @@ func tick(delta: float) -> void:
 	if free_hands != null:
 		rest_l = free_hands[0]
 		rest_r = free_hands[1]
-	var rest_r_w: Vector3 = chest_xf * (_u(_sp_rest_r, delta, rest_r) as Vector3)
-	var rest_l_w: Vector3 = chest_xf * (_u(_sp_rest_l, delta, rest_l) as Vector3)
+	var rest_r_c: Vector3 = _u(_sp_rest_r, delta, rest_r)
+	var rest_l_c: Vector3 = _u(_sp_rest_l, delta, rest_l)
+	if lw > 0.001 and free_hands == null and _loco.size() == LocomotionLibrary.FIELDS.size():
+		# freie Hände schwingen wie im Clip (relativ zur Schulter), ohne Feder: die Feder würde den Schwung dämpfen
+		rest_l_c = rest_l_c.lerp(SHOULDER_L + _loco[8], lw)
+		rest_r_c = rest_r_c.lerp(SHOULDER_R + _loco[9], lw)
+	var rest_r_w: Vector3 = chest_xf * rest_r_c
+	var rest_l_w: Vector3 = chest_xf * rest_l_c
 
 	# Waffe (rechte Hand)
 	var drawn_sword := Transform3D(_basis_from(-d.normalized(), f.normalized()), g)
@@ -1326,6 +1379,12 @@ func tick(delta: float) -> void:
 	pole_r = pole_r.lerp(Vector3(0.35, -0.4, 1.0), free_r)  # freier Arm: Ellbogen nach hinten
 	if off_item == &"" and _two_w < 0.5:
 		pole_l = Vector3(-0.35, -0.4, 1.0)
+	if lw > 0.001 and free_hands == null and _loco.size() == LocomotionLibrary.FIELDS.size():
+		# freie Arme: Ellbogen zeigt wie im Clip
+		pole_r = pole_r.lerp(_loco[11], free_r * lw)
+		var free_l := 1.0 if off_item == &"" else 1.0 - _reach(off_p)
+		free_l *= 1.0 - _two_w
+		pole_l = pole_l.lerp(_loco[10], free_l * lw)
 	if hand_ovr > 0.0:
 		pole_r = pole_r.lerp(Vector3(0.9, -1.0, 0.2), hand_ovr)
 		pole_l = pole_l.lerp(Vector3(-0.9, -1.0, 0.2), hand_ovr)
@@ -1473,6 +1532,28 @@ func _solve_arm(upper: Node3D, lower: Node3D, shoulder: Vector3, target: Vector3
 	var hand := shoulder + dir * d
 	upper.global_transform = Transform3D(_seg_basis(elbow - shoulder, perp), shoulder)
 	lower.global_transform = Transform3D(_seg_basis(hand - elbow, perp), elbow)
+
+
+## Bein-IK im Hüftraum: Fußziel (Spitze des Schienbeins) relativ zum Hüftgelenk -> [Euler des Hüftgelenks, Kniewinkel].
+## Das Knie zeigt immer nach vorn; knee_dir (aus dem Clip) dreht es nur leicht nach außen/innen.
+func _leg_ik(target: Vector3, knee_dir: Vector3) -> Array:
+	var a := THIGH
+	var b := SHIN
+	var d := clampf(target.length(), 0.08, a + b - 0.0005)
+	var dir := target.normalized() if target.length_squared() > 1e-6 else Vector3.DOWN
+	var pole := Vector3(clampf(knee_dir.x, -0.4, 0.4), 0.0, -1.0)
+	var perp := pole - dir * pole.dot(dir)
+	if perp.length_squared() < 1e-6:
+		perp = Vector3.FORWARD
+	perp = perp.normalized()
+	var cos_a := clampf((a * a + d * d - b * b) / (2.0 * a * d), -1.0, 1.0)
+	var thigh := dir * cos_a + perp * sqrt(1.0 - cos_a * cos_a)
+	# Gelenk-Basis: -Y entlang des Oberschenkels, +Z nach hinten (dorthin knickt das Schienbein ein)
+	var y := -thigh
+	var z := -(perp - thigh * perp.dot(thigh)).normalized()
+	var x := y.cross(z)
+	var cos_k := clampf((a * a + b * b - d * d) / (2.0 * a * b), -1.0, 1.0)
+	return [Basis(x, y, z).get_euler(), -(PI - acos(cos_k))]
 
 
 func _seg_basis(along: Vector3, side_hint: Vector3) -> Basis:

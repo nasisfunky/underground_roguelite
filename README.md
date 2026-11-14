@@ -141,6 +141,21 @@ Modelle kommen aus der Konzeptseite (Export: `tools/frayed_export/`), der Flamme
 `scripts/player/frayed_cloth.gd` mit Körperkollision. Vorschau aller Kulturen:
 `godot --path . tools/preview_frayed.tscn -- <ordner>`, Willfaults: `tools/preview_willfaults.tscn`.
 
+## Laufen aus Motion Capture
+
+Gehen, Laufen und Sprinten der Shades (Spieler und Hollowed) kommen aus der **Quaternius Universal Animation
+Library** (CC0, `Walk_Loop`, `Jog_Fwd_Loop`, `Sprint_Loop`). Da die Shades kein Skinning haben, sondern starre Teile
+an Gelenken, rechnet `tools/mocap_bake.gd` die Clips einmalig auf das Shade-Rig um und schreibt `data/locomotion.json`:
+Hüfte (Federn, Kippen), Rumpf und Kopf relativ dazu, Fußziele für eine Bein-IK (Füße stehen wirklich auf dem Boden),
+Handziele und Ellbogenrichtung für freie Arme, alles auf die Shade-Proportionen skaliert.
+
+- Im Spiel mischt `scripts/core/locomotion_library.gd` die Clips nach Tempo (2 m/s Gehen, 4,8 m/s Joggen,
+  7 m/s Sprint) und passt Schrittlänge und Armschwung an, damit nichts gleitet.
+- Stellschrauben in `ShadowBody`: `mocap_lean` (Anteil der Rumpf-Vorlage, 0,5), `mocap_twist` (Anteil der
+  Schulterdrehung, 0,5), `use_mocap = false` schaltet auf den alten prozeduralen Zyklus zurück.
+- Neu backen: `godot --headless --path . -s tools/mocap_bake.gd -- <ordner mit UAL1_Standard.glb und UAL1_Standard_RM.glb>`
+- Vergleich alt/neu als Filmstreifen: `godot --path . tools/move_strips.tscn -- <ordner> locomotion`
+
 ## Game-Feel-Bausteine
 
 Werte stehen als `@export` im Inspector und lassen sich live anpassen (`scripts/player/player.gd`).
